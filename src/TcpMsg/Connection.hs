@@ -12,9 +12,9 @@
 
 module TcpMsg.Connection where
 
-import Control.Concurrent (MVar, putMVar, takeMVar)
+import Control.Concurrent (MVar)
 import qualified Data.ByteString as BS
-import Data.Serialize (Serialize, encode)
+import Data.Serialize (Serialize)
 import qualified Data.Text as T
 import Effectful
   ( Dispatch (Static),
@@ -25,6 +25,7 @@ import Effectful
     (:>),
   )
 import Effectful.Concurrent (Concurrent)
+import Effectful.Concurrent.MVar (withMVar)
 import Effectful.Concurrent.STM (TVar, atomically, modifyTVar)
 import Effectful.Dispatch.Static
   ( SideEffects (WithSideEffects),
@@ -33,8 +34,7 @@ import Effectful.Dispatch.Static
     getStaticRep,
     unsafeEff_,
   )
-import GHC.Generics (Generic)
-import TcpMsg.Data (ClientId, Time, mkMsg)
+import TcpMsg.Data (ClientId, mkMsg)
 
 ----------------------------------------------------------------------------------------------------------
 
@@ -46,8 +46,6 @@ data ConnectionInfo
   = ConnectionInfo
       -- | Any identifier for the client
       ClientId
-      -- | Time when connection was started
-      Time
 
 data ConnectionState = Awaiting Int -- Waiting for n bytes
 
@@ -68,8 +66,6 @@ type ConnectionRead a = ConnectionHandleRef a -> Int -> IO BS.StrictByteString
 
 type ConnectionWrite a = ConnectionHandleRef a -> BS.StrictByteString -> IO ()
 
-type Finalize a = ConnectionHandleRef a -> IO ()
-
 -- All necessary operations to handle a connection
 data ConnectionActions a
   = ConnectionActions
@@ -77,7 +73,6 @@ data ConnectionActions a
       (WriterMutex) -- So that only one thread can be writing to a connection on a given time
       (ConnectionRead a) -- Interface for receiving bytes
       (ConnectionWrite a) -- Interface for sending bytes
-      (Finalize a) -- Action to be performed when connection is closed
 
 ----------------------------------------------------------------------------------------------------------
 
@@ -88,43 +83,90 @@ type instance DispatchOf (Conn a) = Static WithSideEffects
 
 newtype instance StaticRep (Conn a) = Conn (ConnectionActions a)
 
--- | Connection effects (e.g. reading and writing to a socket) and concurrency
-type ConcurrConn c m = (Concurrent :> m, Conn c :> m)
-
 ----------------------------------------------------------------------------------------------------------
--- | Effectful operations
 
+-- | Effectful operations
 readBytes :: forall es c. (Conn c :> es) => Int -> Eff es BS.StrictByteString
 readBytes n = do
-  (Conn (ConnectionActions st _ connRead _ _)) <- (getStaticRep :: Eff es (StaticRep (Conn c)))
+  (Conn (ConnectionActions st _ connRead _)) <- (getStaticRep :: Eff es (StaticRep (Conn c)))
   unsafeEff_ (connRead st n)
 
-writeBytesUnsafe :: forall c es. (Conn c :> es) => BS.StrictByteString -> Eff es ()
-writeBytesUnsafe bytes = do
-  (Conn (ConnectionActions st _ _ connWrite _)) <- (getStaticRep :: Eff es (StaticRep (Conn c)))
-  unsafeEff_ (connWrite st bytes)
+writeBytes ::
+  forall c es.
+  ( Concurrent :> es,
+    Conn c :> es
+  ) =>
+  BS.StrictByteString ->
+  Eff es ()
+writeBytes bytes = do
+  (Conn (ConnectionActions st writerMutex _ connWrite)) <- (getStaticRep :: Eff es (StaticRep (Conn c)))
+  let doWriteBytes (_lock :: ()) = unsafeEff_ (connWrite st bytes)
+  withMVar
+    writerMutex
+    doWriteBytes
 
-writeBytes :: forall c es. (Conn c :> es) => BS.StrictByteString -> Eff es ()
-writeBytes bytes = withWriterLock @c (writeBytesUnsafe @c bytes)
-
-write :: forall c a es. (Conn c :> es, Serialize a) => Int -> a -> Eff es ()
+write ::
+  forall c a es.
+  ( Concurrent :> es,
+    Conn c :> es,
+    Serialize a
+  ) =>
+  Int ->
+  a ->
+  Eff es ()
 write messageId obj = writeBytes @c (mkMsg messageId obj)
 
-markState :: forall es c. (ConcurrConn c es) => ConnectionState -> Eff es ()
+markState ::
+  forall es c.
+  ( Concurrent :> es,
+    Conn c :> es
+  ) =>
+  ConnectionState ->
+  Eff es ()
 markState state = do
-  (Conn (ConnectionActions st _ _ _ _)) <- (getStaticRep :: Eff es (StaticRep (Conn c)))
+  (Conn (ConnectionActions st _ _ _)) <- (getStaticRep :: Eff es (StaticRep (Conn c)))
   atomically (modifyTVar st (setConnState state))
 
-runConnection :: (IOE :> es) => ConnectionActions c -> Eff (Conn c ': es) a -> Eff es a
+runConnection :: forall c a es. (IOE :> es) => ConnectionActions c -> Eff (Conn c ': es) a -> Eff es a
 runConnection connectionActions = evalStaticRep (Conn connectionActions)
 
-withWriterLock :: forall c es a. (Conn c :> es) => Eff es a -> Eff es a
-withWriterLock operation = do
-  (Conn (ConnectionActions _ writerMutex _ _ _)) <- (getStaticRep :: Eff es (StaticRep (Conn c)))
-  lock <- unsafeEff_ (takeMVar writerMutex)
-  ret <- operation
-  unsafeEff_ (putMVar writerMutex lock)
-  return ret
+----------------------------------------------------------------------------------------------------------
+
+type NextConnection c = IO (ConnectionHandle c)
+
+type InitConn c = ConnectionHandle c -> IO (ConnectionActions c)
+
+type Finalize c = ConnectionHandleRef c -> IO ()
+
+data ConnSupplierActions c
+  = ConnSupplierActions
+      (NextConnection c)
+      (InitConn c)
+
+----------------------------------------------------------------------------------------------------------
+
+-- | Effect definition
+data ConnSupplier a :: Effect
+
+type instance DispatchOf (ConnSupplier a) = Static WithSideEffects
+
+newtype instance StaticRep (ConnSupplier a) = ConnSupplier (ConnSupplierActions a)
+
+----------------------------------------------------------------------------------------------------------
+
+eachConnectionDo ::
+  forall c es.
+  ( IOE :> es,
+    ConnSupplier c :> es
+  ) =>
+  Eff (Conn c ': es) () ->
+  Eff es ()
+eachConnectionDo action = do
+  (ConnSupplier (ConnSupplierActions nextConnection initConnection)) <- (getStaticRep :: Eff es (StaticRep (ConnSupplier c)))
+  connHandle <- unsafeEff_ nextConnection
+  connActions <- unsafeEff_ (initConnection connHandle)
+  runConnection connActions action
+  eachConnectionDo action
 
 ----------------------------------------------------------------------------------------------------------
 -- Various helpers

@@ -1,21 +1,22 @@
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 
 module TcpMsg.ParsingBuffers where
 
+import Control.Monad (void)
 import qualified Data.ByteString as BS
 import Data.ByteString.Lazy (LazyByteString, toStrict)
 import Data.Serialize (Serialize, decode)
+import Effectful (Eff, IOE, (:>))
+import Effectful.Concurrent (Concurrent, forkIO)
+import TcpMsg.Connection (Conn, ConnSupplier, eachConnectionDo, readBytes, write)
+import TcpMsg.Data (Header (Header), headersize)
 
-import TcpMsg.Data (Header(Header), headersize)
-import TcpMsg.Connection (readBytes, ConnectionState (Awaiting), markState, ConcurrConn, write)
-import Effectful (Eff, (:>), IOE)
-
-import Control.Concurrent (forkIO)
 ----------------------------------------------------------------------------------------------------------
 
 emptyByteString :: LazyByteString
@@ -23,22 +24,22 @@ emptyByteString = mempty
 
 ----------------------------------------------------------------------------------------------------------
 
-parseMsg :: forall connState message es. (ConcurrConn connState es, Serialize message) => Eff es (Header, message)
+parseMsg :: forall connState message es. (Conn connState :> es, Serialize message) => Eff es (Header, message)
 parseMsg = do
   header <- parseHeader @connState
   payload <- parsePayload @connState header
   return (header, payload)
 
-parseHeader :: forall connState es. (ConcurrConn connState es) => Eff es Header
+parseHeader :: forall connState es. (Conn connState :> es) => Eff es Header
 parseHeader = newBuffer @connState headersize
 
-parsePayload :: forall connState message es. (ConcurrConn connState es, Serialize message) => Header -> Eff es message
+parsePayload :: forall connState message es. (Conn connState :> es, Serialize message) => Header -> Eff es message
 parsePayload (Header msgId msgSize) = newBuffer @connState msgSize
 
-newBuffer :: forall connState message es. (ConcurrConn connState es, Serialize message) => Int -> Eff es message
+newBuffer :: forall connState message es. (Conn connState :> es, Serialize message) => Int -> Eff es message
 newBuffer = buffer @connState emptyByteString
 
-buffer :: forall connState message es. (ConcurrConn connState es, Serialize message) => LazyByteString -> Int -> Eff es message
+buffer :: forall connState message es. (Conn connState :> es, Serialize message) => LazyByteString -> Int -> Eff es message
 buffer currBuffer remainingBytes = do
   newBytes <- readBytes @es @connState remainingBytes
   let bytesInLastMessage = BS.length newBytes
@@ -54,16 +55,40 @@ buffer currBuffer remainingBytes = do
 
 ----------------------------------------------------------------------------------------------------------
 
--- An action to be performed on a received message. It is assumed that every incoming message
--- is a serialized value of type `a`
-type Action es a b = a -> Eff es b
+-- | An action to be performed on a received message. It is assumed
+-- that every incoming message is a serialized value of type `a`
+type Action es a b = a -> Eff es a
 
-runConn :: forall connState es a b. 
-  (ConcurrConn connState es, Serialize a, Serialize b) =>
-  Action es a b ->
+eachRequestDo ::
+  forall connState es a b.
+  ( Concurrent :> es,
+    Serialize a,
+    Serialize b
+  ) =>
+  Action (Conn connState ': es) a b ->
+  Eff (Conn connState ': es) ()
+eachRequestDo respond = do
+  ((Header messageId _), request) <- parseMsg @connState
+  inParallel (respond request >>= write @connState messageId)
+  eachRequestDo @connState @es @a @b respond
+
+----------------------------------------------------------------------------------------------------------
+
+runServer ::
+  forall connState es a b.
+  ( IOE :> es,
+    Concurrent :> es,
+    ConnSupplier connState :> es,
+    Serialize a,
+    Serialize b
+  ) =>
+  Action (Conn connState ': es) a b ->
   Eff es ()
-runConn action = do
-  ((Header messageId _), request) <- parseMsg @connState @a @es
-  forkIO (action request >>= write @connState messageId)
-  return ()
-  
+runServer respond =
+  let respondToRequests = eachRequestDo @connState @es @a @b respond
+   in eachConnectionDo (inParallel respondToRequests)
+
+----------------------------------------------------------------------------------------------------------
+
+inParallel :: forall es. (Concurrent :> es) => Eff es () -> Eff es ()
+inParallel = void . forkIO
