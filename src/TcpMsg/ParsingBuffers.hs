@@ -17,13 +17,6 @@ import Effectful.Concurrent (Concurrent, forkIO)
 import TcpMsg.Connection (Conn, ConnSupplier, eachConnectionDo, readBytes, write)
 import TcpMsg.Data (Header (Header), headersize)
 
-----------------------------------------------------------------------------------------------------------
-
-emptyByteString :: LazyByteString
-emptyByteString = mempty
-
-----------------------------------------------------------------------------------------------------------
-
 parseMsg :: forall connState message es. (Conn connState :> es, Serialize message) => Eff es (Header, message)
 parseMsg = do
   header <- parseHeader @connState
@@ -37,7 +30,7 @@ parsePayload :: forall connState message es. (Conn connState :> es, Serialize me
 parsePayload (Header msgId msgSize) = newBuffer @connState msgSize
 
 newBuffer :: forall connState message es. (Conn connState :> es, Serialize message) => Int -> Eff es message
-newBuffer = buffer @connState emptyByteString
+newBuffer = buffer @connState (mempty :: LazyByteString)
 
 buffer :: forall connState message es. (Conn connState :> es, Serialize message) => LazyByteString -> Int -> Eff es message
 buffer currBuffer remainingBytes = do
@@ -57,7 +50,12 @@ buffer currBuffer remainingBytes = do
 
 -- | An action to be performed on a received message. It is assumed
 -- that every incoming message is a serialized value of type `a`
-type Action es a b = a -> Eff es a
+type Action
+  es -- Effects of the action
+  a --  Incoming message type
+  b --  Outgoing message type
+  =
+  a -> Eff es a
 
 eachRequestDo ::
   forall connState es a b.

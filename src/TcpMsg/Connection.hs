@@ -25,8 +25,8 @@ import Effectful
     (:>),
   )
 import Effectful.Concurrent (Concurrent)
-import Effectful.Concurrent.MVar (withMVar)
-import Effectful.Concurrent.STM (TVar, atomically, modifyTVar)
+import Effectful.Concurrent.MVar (withMVar, newMVar)
+import Effectful.Concurrent.STM (TVar)
 import Effectful.Dispatch.Static
   ( SideEffects (WithSideEffects),
     StaticRep,
@@ -47,18 +47,15 @@ data ConnectionInfo
       -- | Any identifier for the client
       ClientId
 
-data ConnectionState = Awaiting Int -- Waiting for n bytes
-
 -- | A connection handle which is used by the parent thread to refer to the thread which is handling the connection
 data ConnectionHandle a
   = ConnectionHandle
-      ConnectionState
       ConnectionInfo
       a -- Some protocol-specific data. E.g. client socket address
 
 instance Functor ConnectionHandle where
   fmap :: (a -> b) -> ConnectionHandle a -> ConnectionHandle b
-  fmap f (ConnectionHandle st inf a) = ConnectionHandle st inf (f a)
+  fmap f (ConnectionHandle inf a) = ConnectionHandle inf (f a)
 
 type ConnectionHandleRef a = TVar (ConnectionHandle a)
 
@@ -73,6 +70,15 @@ data ConnectionActions a
       (WriterMutex) -- So that only one thread can be writing to a connection on a given time
       (ConnectionRead a) -- Interface for receiving bytes
       (ConnectionWrite a) -- Interface for sending bytes
+
+mkConnectionActions :: forall es a. (Concurrent :> es) => 
+  ConnectionHandleRef a ->
+  ConnectionRead a ->
+  ConnectionWrite a ->
+  Eff es (ConnectionActions a)
+mkConnectionActions handle connread connwrite = do
+  writerLock <- newMVar ()
+  return (ConnectionActions handle writerLock connread connwrite)
 
 ----------------------------------------------------------------------------------------------------------
 
@@ -115,17 +121,6 @@ write ::
   a ->
   Eff es ()
 write messageId obj = writeBytes @c (mkMsg messageId obj)
-
-markState ::
-  forall es c.
-  ( Concurrent :> es,
-    Conn c :> es
-  ) =>
-  ConnectionState ->
-  Eff es ()
-markState state = do
-  (Conn (ConnectionActions st _ _ _)) <- (getStaticRep :: Eff es (StaticRep (Conn c)))
-  atomically (modifyTVar st (setConnState state))
 
 runConnection :: forall c a es. (IOE :> es) => ConnectionActions c -> Eff (Conn c ': es) a -> Eff es a
 runConnection connectionActions = evalStaticRep (Conn connectionActions)
@@ -170,9 +165,6 @@ eachConnectionDo action = do
 
 ----------------------------------------------------------------------------------------------------------
 -- Various helpers
-
-setConnState :: ConnectionState -> ConnectionHandle a -> ConnectionHandle a
-setConnState newSt (ConnectionHandle _ info a) = ConnectionHandle newSt info a
 
 showConn :: ConnectionHandle a -> T.Text
 showConn (ConnectionHandle {}) = "TODO: conn representation"
