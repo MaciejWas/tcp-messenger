@@ -6,7 +6,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 
-module TcpMsg.ParsingBuffers where
+module TcpMsg.Parsing where
 
 import Control.Monad (void)
 import qualified Data.ByteString as BS
@@ -14,7 +14,7 @@ import Data.ByteString.Lazy (LazyByteString, toStrict)
 import Data.Serialize (Serialize, decode)
 import Effectful (Eff, IOE, (:>))
 import Effectful.Concurrent (Concurrent, forkIO)
-import TcpMsg.Connection (Conn, ConnSupplier, eachConnectionDo, readBytes, write)
+import TcpMsg.Effects.Connection (Conn, ConnSupplier, eachConnectionDo, readBytes, write)
 import TcpMsg.Data (Header (Header), headersize)
 
 parseMsg :: forall connState message es. (Conn connState :> es, Serialize message) => Eff es (Header, message)
@@ -47,15 +47,7 @@ buffer currBuffer remainingBytes = do
        in buffer @connState updatedBuffer updatedRemaining
 
 ----------------------------------------------------------------------------------------------------------
-
--- | An action to be performed on a received message. It is assumed
--- that every incoming message is a serialized value of type `a`
-type Action
-  es -- Effects of the action
-  a --  Incoming message type
-  b --  Outgoing message type
-  =
-  a -> Eff es a
+-- 20
 
 eachRequestDo ::
   forall connState es a b.
@@ -63,10 +55,10 @@ eachRequestDo ::
     Serialize a,
     Serialize b
   ) =>
-  Action (Conn connState ': es) a b ->
+  (a -> Eff (Conn connState ': es) b) ->
   Eff (Conn connState ': es) ()
 eachRequestDo respond = do
-  ((Header messageId _), request) <- parseMsg @connState
+  (Header messageId _, request) <- parseMsg @connState
   inParallel (respond request >>= write @connState messageId)
   eachRequestDo @connState @es @a @b respond
 
@@ -80,7 +72,7 @@ runServer ::
     Serialize a,
     Serialize b
   ) =>
-  Action (Conn connState ': es) a b ->
+  (a -> Eff (Conn connState ': es) b) ->
   Eff es ()
 runServer respond =
   let respondToRequests = eachRequestDo @connState @es @a @b respond

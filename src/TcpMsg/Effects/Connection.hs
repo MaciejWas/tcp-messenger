@@ -10,7 +10,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 
-module TcpMsg.Connection where
+module TcpMsg.Effects.Connection where
 
 import Control.Concurrent (MVar)
 import qualified Data.ByteString as BS
@@ -25,7 +25,7 @@ import Effectful
     (:>),
   )
 import Effectful.Concurrent (Concurrent)
-import Effectful.Concurrent.MVar (withMVar, newMVar)
+import Effectful.Concurrent.MVar (newMVar, withMVar)
 import Effectful.Concurrent.STM (TVar)
 import Effectful.Dispatch.Static
   ( SideEffects (WithSideEffects),
@@ -71,7 +71,9 @@ data ConnectionActions a
       (ConnectionRead a) -- Interface for receiving bytes
       (ConnectionWrite a) -- Interface for sending bytes
 
-mkConnectionActions :: forall es a. (Concurrent :> es) => 
+mkConnectionActions ::
+  forall es a.
+  (Concurrent :> es) =>
   ConnectionHandleRef a ->
   ConnectionRead a ->
   ConnectionWrite a ->
@@ -162,6 +164,20 @@ eachConnectionDo action = do
   connActions <- unsafeEff_ (initConnection connHandle)
   runConnection connActions action
   eachConnectionDo action
+
+----------------------------------------------------------------------------------------------------------
+
+data ClientActions a b = ClientActions
+  { ask :: a -> IO (),
+    poll :: Int -> IO b
+  }
+
+-- | Effect definition
+data Client a b :: Effect
+
+type instance DispatchOf (Client a b) = Static WithSideEffects
+
+newtype instance StaticRep (Client a b) = Client (ClientActions a b)
 
 ----------------------------------------------------------------------------------------------------------
 -- Various helpers

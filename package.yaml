@@ -25,6 +25,7 @@ dependencies:
 - network-simple == 0.4.5
 - socket == 0.8.3.0
 - bytestring == 0.11.5.3
+- network == 3.1.4.0
 # - unix == 2.8.5.0
 # - HFuse == 0.2.5.0
 # - unix-bytestring == 0.3.7.8

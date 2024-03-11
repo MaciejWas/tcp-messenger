@@ -2,6 +2,8 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeApplications #-}
 
 import Control.Concurrent (MVar)
 import Control.Exception (evaluate)
@@ -19,16 +21,17 @@ import Effectful
   )
 import Effectful.Concurrent (Concurrent, runConcurrent)
 import Effectful.Concurrent.MVar (newMVar, withMVar)
-import Effectful.Concurrent.STM (STM, atomically, modifyTVar, newTVar, newTVarIO, readTVar, writeTVar)
+import Effectful.Concurrent.STM (STM, atomically, modifyTVar, newTVar, newTVarIO, readTVar, writeTVar, readTVarIO)
 import GHC.Base (undefined)
-import TcpMsg.Connection
+import TcpMsg.Effects.Connection
   ( ConnectionActions (ConnectionActions),
     ConnectionHandle (ConnectionHandle),
     ConnectionHandleRef,
     ConnectionInfo (ConnectionInfo),
-    mkConnectionActions,
+    Conn,
+    mkConnectionActions, runConnection,
   )
-import TcpMsg.Data (mkMsg)
+import TcpMsg.Data (mkMsg, Header (Header))
 import Test.Hspec
   ( anyException,
     describe,
@@ -39,27 +42,13 @@ import Test.Hspec
   )
 import Test.QuickCheck (Testable (property))
 import Test.QuickCheck.Instances.ByteString
+import Test.QuickCheck.Monadic (monadicIO, run, assert)
+import TcpMsg.Parsing (parseMsg, parseHeader)
 
 data MockConnStream
   = MockConnStream
       BS.StrictByteString -- input
       BS.StrictByteString -- output
-
-mockConnStreamWrite :: ConnectionHandleRef MockConnStream -> BS.StrictByteString -> IO ()
-mockConnStreamWrite conn bytes = runEff (runConcurrent (atomically go))
-  where
-    go :: STM ()
-    go = modifyTVar conn (\(ConnectionHandle info (MockConnStream inp outp)) -> ConnectionHandle info (MockConnStream inp (outp <> bytes)))
-
-mockConnStreamRead :: ConnectionHandleRef MockConnStream -> Int -> IO BS.StrictByteString
-mockConnStreamRead conn size = runEff (runConcurrent (atomically go))
-  where
-    go :: STM BS.StrictByteString
-    go = do
-      (ConnectionHandle info (MockConnStream inp outp)) <- readTVar conn
-      let (read, remain) = BS.splitAt size inp
-      writeTVar conn (ConnectionHandle info (MockConnStream remain outp))
-      return read
 
 testConnHandle :: BS.StrictByteString -> ConnectionHandle MockConnStream
 testConnHandle input = ConnectionHandle (ConnectionInfo mempty) (MockConnStream input mempty)
@@ -70,35 +59,61 @@ testConnActions ::
   ConnectionHandleRef MockConnStream ->
   Eff es (ConnectionActions MockConnStream)
 testConnActions connHandleRef = mkConnectionActions connHandleRef mockConnStreamRead mockConnStreamWrite
+  where
+    mockConnStreamWrite :: ConnectionHandleRef MockConnStream -> BS.StrictByteString -> IO ()
+    mockConnStreamWrite conn bytes = runEff (runConcurrent (atomically go))
+      where
+        go :: STM ()
+        go = modifyTVar conn (\(ConnectionHandle info (MockConnStream inp outp)) -> ConnectionHandle info (MockConnStream inp (outp <> bytes)))
+
+    mockConnStreamRead :: ConnectionHandleRef MockConnStream -> Int -> IO BS.StrictByteString
+    mockConnStreamRead conn size = runEff (runConcurrent (atomically go))
+      where
+        go :: STM BS.StrictByteString
+        go = do
+          (ConnectionHandle info (MockConnStream inp outp)) <- readTVar conn
+          let (read, remain) = BS.splitAt size inp
+          writeTVar conn (ConnectionHandle info (MockConnStream remain outp))
+          return read
+
+inConnectionContext ::
+  forall a x.
+  (Serialize a) =>
+  [(Int, a)] ->
+  Eff '[Conn MockConnStream, Concurrent, IOE] x ->
+  IO x
+inConnectionContext messages action =
+  let inputStream = foldl (<>) mempty (map (uncurry mkMsg) messages)
+      testHandle = testConnHandle inputStream
+  in runEff (runConcurrent (do
+    testHandleRef <- newTVarIO testHandle
+    connActions <- testConnActions testHandleRef
+    runConnection connActions action
+  ))
+
+--------------------------------------------------------------------------------------------------------------------------------------------------------
 
 main :: IO ()
 main = hspec $ do
   describe "TcpMsg" $ do
     describe "Data" $ do
       describe "mkMsg" $ do
-        it "encodes arbitrary payload" $ do
-          property $ \(messageId :: Int) (payload :: BS.ByteString) -> BS.length (mkMsg messageId payload) > 0
+        it "creates a message which contains the payload" $ do
+          property $ \(messageId :: Int) (payload :: BS.ByteString) -> BS.isInfixOf payload (mkMsg messageId payload)
 
     describe "ParsingBuffers" $ do
-      describe "parseHeader" $ do
-        it "parses arbitrary header" $ do
-          property $ inConnectionContext (\inputStream -> ...)
+      describe "parseMsg" $ do
+        it "parses a header" $ do
+          property $ \(messageId :: Int) (payload :: BS.ByteString)  -> monadicIO $ do
+            (Header responseMsgId _) <- run (inConnectionContext [(messageId, payload)] (parseHeader @MockConnStream))
+            assert (responseMsgId == messageId)
 
-inConnectionContext ::
-  forall es c a.
-  (Serialize a, Conn c :> es) =>
-  [(Int, a)] ->
-  Eff es Bool ->
-  IO Bool
-inConnectionContext = undefined
+        it "parses a message" $ do
+          property $ \(messageId :: Int) (payload :: BS.ByteString)  -> monadicIO $ do
+            (Header responseMsgId _, response) <- run (inConnectionContext [(messageId, payload)] (parseMsg @MockConnStream @BS.ByteString))
+            assert (response == payload)
+            assert (responseMsgId == messageId)
 
-testParsesArbitraryHeader :: Int -> BS.ByteString -> IO ()
-testParsesArbitraryHeader messageId content =
-  let msg = mkMsg messageId content
-      mock = testConnHandle msg
-   in do
-        (runEff . runConcurrent)
-          (newTVarIO mock >>= testConnActions >> return ())
 
 -- QuickCheck
 -- (id, payload) -> ByteString ->

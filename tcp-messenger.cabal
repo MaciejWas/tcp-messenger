@@ -1,6 +1,6 @@
 cabal-version: 2.2
 
--- This file has been generated from package.yaml by hpack version 0.35.2.
+-- This file has been generated from package.yaml by hpack version 0.36.0.
 --
 -- see: https://github.com/sol/hpack
 
@@ -26,11 +26,13 @@ source-repository head
 library
   exposed-modules:
       Lib
-      TcpMsg.Connection
       TcpMsg.Data
-      TcpMsg.ParsingBuffers
-      TcpMsg.TcpClient
-      TcpMsg.TcpServer
+      TcpMsg.Effects.Client
+      TcpMsg.Effects.Connection
+      TcpMsg.Effects.Supplier
+      TcpMsg.Parsing
+      TcpMsg.Server.Abstract
+      TcpMsg.Server.Tcp
   other-modules:
       Paths_tcp_messenger
   autogen-modules:
@@ -43,6 +45,7 @@ library
     , bytestring ==0.11.5.3
     , cereal ==0.5.8.3
     , effectful ==2.2.2.0
+    , network ==3.1.4.0
     , network-simple ==0.4.5
     , socket ==0.8.3.0
     , stm ==2.5.1.0
@@ -63,6 +66,7 @@ executable tcp-messenger-exe
     , bytestring ==0.11.5.3
     , cereal ==0.5.8.3
     , effectful ==2.2.2.0
+    , network ==3.1.4.0
     , network-simple ==0.4.5
     , socket ==0.8.3.0
     , stm ==2.5.1.0
@@ -87,6 +91,7 @@ test-suite tcp-messenger-test
     , cereal ==0.5.8.3
     , effectful ==2.2.2.0
     , hspec ==2.10.10
+    , network ==3.1.4.0
     , network-simple ==0.4.5
     , quickcheck-instances ==0.3.30
     , socket ==0.8.3.0
