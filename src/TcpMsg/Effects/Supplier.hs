@@ -1,49 +1,30 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE InstanceSigs #-}
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE GADTs #-}
 
 module TcpMsg.Effects.Supplier where
 
 import Effectful
-  ( Dispatch (Static),
+  ( Dispatch (Dynamic, Static),
     DispatchOf,
     Eff,
     Effect,
     IOE,
     (:>),
   )
-import Effectful (  Dispatch(Dynamic) )
-import TcpMsg.Effects.Connection (ConnectionHandle, ConnectionActions, ConnectionHandleRef, Conn, runConnection)
 import Effectful.Dispatch.Dynamic (HasCallStack, send)
-
-----------------------------------------------------------------------------------------------------------
-
-type NextConnection c = IO (ConnectionHandle c)
-
-type InitConn c = ConnectionHandle c -> IO (ConnectionActions c)
-
-type Finalize c = ConnectionHandleRef c -> IO ()
-
-data ConnSupplierActions c
-  = ConnSupplierActions
-      (NextConnection c)
-      (InitConn c)
+import TcpMsg.Effects.Connection (Conn, ConnectionActions, ConnectionHandle, ConnectionHandleRef, runConnection)
 
 ----------------------------------------------------------------------------------------------------------
 
 -- | Effect definition
 data ConnSupplier conn :: Effect where
   GetNextConn :: ConnSupplier conn m (ConnectionActions conn)
-  Finalize :: a -> ConnSupplier conn m ()
 
 type instance DispatchOf (ConnSupplier a) = Dynamic
 

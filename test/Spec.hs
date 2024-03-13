@@ -44,6 +44,8 @@ import Test.QuickCheck (Testable (property))
 import Test.QuickCheck.Instances.ByteString
 import Test.QuickCheck.Monadic (monadicIO, run, assert)
 import TcpMsg.Parsing (parseMsg, parseHeader)
+import TcpMsg.Server.Tcp (runTcpServer)
+import Control.Monad (void)
 
 data MockConnStream
   = MockConnStream
@@ -58,22 +60,23 @@ testConnActions ::
   (Concurrent :> es) =>
   ConnectionHandleRef MockConnStream ->
   Eff es (ConnectionActions MockConnStream)
-testConnActions connHandleRef = mkConnectionActions connHandleRef mockConnStreamRead mockConnStreamWrite
+testConnActions connHandleRef = do
+  mkConnectionActions connHandleRef mockConnStreamRead mockConnStreamWrite
   where
-    mockConnStreamWrite :: ConnectionHandleRef MockConnStream -> BS.StrictByteString -> IO ()
-    mockConnStreamWrite conn bytes = runEff (runConcurrent (atomically go))
+    mockConnStreamWrite :: BS.StrictByteString -> IO ()
+    mockConnStreamWrite bytes = runEff (runConcurrent (atomically go))
       where
         go :: STM ()
-        go = modifyTVar conn (\(ConnectionHandle info (MockConnStream inp outp)) -> ConnectionHandle info (MockConnStream inp (outp <> bytes)))
+        go = modifyTVar connHandleRef (\(ConnectionHandle info (MockConnStream inp outp)) -> ConnectionHandle info (MockConnStream inp (outp <> bytes)))
 
-    mockConnStreamRead :: ConnectionHandleRef MockConnStream -> Int -> IO BS.StrictByteString
-    mockConnStreamRead conn size = runEff (runConcurrent (atomically go))
+    mockConnStreamRead :: Int -> IO BS.StrictByteString
+    mockConnStreamRead size = runEff (runConcurrent (atomically go))
       where
         go :: STM BS.StrictByteString
         go = do
-          (ConnectionHandle info (MockConnStream inp outp)) <- readTVar conn
+          (ConnectionHandle info (MockConnStream inp outp)) <- readTVar connHandleRef
           let (read, remain) = BS.splitAt size inp
-          writeTVar conn (ConnectionHandle info (MockConnStream remain outp))
+          writeTVar connHandleRef (ConnectionHandle info (MockConnStream remain outp))
           return read
 
 inConnectionContext ::
@@ -96,6 +99,10 @@ inConnectionContext messages action =
 main :: IO ()
 main = hspec $ do
   describe "TcpMsg" $ do
+    describe "Server" $ do
+      it "can start a TCP server" $ do
+        runEff (runConcurrent (runTcpServer (return ())))
+
     describe "Data" $ do
       describe "mkMsg" $ do
         it "creates a message which contains the payload" $ do

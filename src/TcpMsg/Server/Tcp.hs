@@ -2,28 +2,23 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module TcpMsg.Server.Tcp where
 
-import Control.Exception (bracketOnError)
-import qualified Data.ByteString as BS
+import Control.Concurrent (forkFinally)
+import qualified Control.Exception as E
+import Control.Monad (void)
 import Effectful
-  ( Dispatch (Static),
-    DispatchOf,
-    Eff,
-    Effect,
-    (:>),
+  ( Eff,
+    (:>), IOE, MonadIO (liftIO),
   )
-import Effectful.Dispatch.Static
-  ( SideEffects (WithSideEffects),
-    StaticRep,
-    getStaticRep,
-    unsafeEff_,
-  )
-import Network.Socket (SocketOption (ReuseAddr), defaultHints, getAddrInfo, setCloseOnExecIfNeeded)
+import Network.Socket (SocketOption (ReuseAddr), setCloseOnExecIfNeeded)
 import qualified Network.Socket as Net
   ( AddrInfo (..),
     AddrInfoFlag (AI_ADDRCONFIG),
@@ -32,15 +27,22 @@ import qualified Network.Socket as Net
     SockAddr (SockAddrInet),
     Socket,
     SocketType (NoSocketType),
+    accept,
     bind,
     close,
     getAddrInfo,
+    gracefulClose,
     listen,
     openSocket,
     setSocketOption,
     withFdSocket,
   )
-import Network.Socket.ByteString (recv, sendAll)
+import TcpMsg.Effects.Connection (ConnectionActions, mkConnectionActions, ConnectionHandle (ConnectionHandle), ConnectionInfo (ConnectionInfo))
+import TcpMsg.Effects.Supplier (ConnSupplier(GetNextConn))
+import Effectful.Dispatch.Dynamic (interpret)
+import Effectful.Concurrent (Concurrent)
+import Effectful.Concurrent.STM (newTVarIO)
+import qualified Network.Socket.ByteString as Net
 
 ----------------------------------------------------------------------------------------------------------
 
@@ -80,26 +82,63 @@ setDefaultSocketOptions sock =
   where
     setOption = uncurry (Net.setSocketOption sock)
 
-setupSocket :: Net.Socket -> Net.AddrInfo -> IO ()
-setupSocket sock addr = do
+startListening :: Net.Socket -> Net.AddrInfo -> IO ()
+startListening sock addr = do
   setDefaultSocketOptions sock
   Net.withFdSocket sock setCloseOnExecIfNeeded
   Net.bind sock (Net.addrAddress addr)
   Net.listen sock maxQueuedConn
 
 getAddr :: IO Net.AddrInfo
-getAddr = 
+getAddr =
   let hints = Just defaultAddrInfo
       hostInfo = Just "0.0.0.0"
       portInfo = Just "4455"
-  in head <$> Net.getAddrInfo hints hostInfo portInfo
+   in head <$> Net.getAddrInfo hints hostInfo portInfo
 
-spawnServer :: IO ()
-spawnServer = do
+type SocketRunner a = (Net.Socket -> Net.SockAddr -> IO a)
+
+spawnServer :: IO Net.Socket
+spawnServer  = do
   socketAddress <- getAddr
   socket <- Net.openSocket socketAddress
-  setupSocket socket socketAddress
-  return ()
+  startListening socket socketAddress
+  return socket
+
+onConnectionDo :: forall a. Net.Socket -> (Net.Socket -> Net.SockAddr -> IO a) -> IO ()
+onConnectionDo sock action =
+  E.bracketOnError
+    (Net.accept sock)
+    (Net.close . fst)
+    ( \(conn, peer) ->
+        void
+          ( forkFinally
+              (action conn peer)
+              (const $ Net.gracefulClose conn 5000)
+          )
+    )
+
+----------------------------------------------------------------------------------------------------------
+
+nextConnection :: (Concurrent :> es) => Net.Socket -> Eff es (ConnectionActions Net.Socket)
+nextConnection sock = do
+  connRef <- newTVarIO (ConnectionHandle (ConnectionInfo "some conn" ) sock)
+  mkConnectionActions 
+    connRef
+    (Net.recv sock)
+    (Net.sendAll sock)
+
+----------------------------------------------------------------------------------------------------------
+
+runTcpServer ::
+  (IOE :> es, Concurrent :> es) =>
+  Eff (ConnSupplier Net.Socket ': es) a ->
+  Eff es a
+runTcpServer operation = do 
+  socket <- liftIO spawnServer
+  (interpret $ \_ -> \case
+      GetNextConn -> nextConnection socket
+    ) operation
 
 -- {-# INLINE withSocket #-}
 -- withSocket :: forall es b. (Network :> es) => (Net.Socket -> IO b) -> Eff es b

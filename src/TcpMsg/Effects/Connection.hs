@@ -59,9 +59,9 @@ instance Functor ConnectionHandle where
 
 type ConnectionHandleRef a = TVar (ConnectionHandle a)
 
-type ConnectionRead a = ConnectionHandleRef a -> Int -> IO BS.StrictByteString
+type ConnectionRead a = Int -> IO BS.StrictByteString
 
-type ConnectionWrite a = ConnectionHandleRef a -> BS.StrictByteString -> IO ()
+type ConnectionWrite a = BS.StrictByteString -> IO ()
 
 -- All necessary operations to handle a connection
 data ConnectionActions a
@@ -96,8 +96,8 @@ newtype instance StaticRep (Conn a) = Conn (ConnectionActions a)
 -- | Effectful operations
 readBytes :: forall es c. (Conn c :> es) => Int -> Eff es BS.StrictByteString
 readBytes n = do
-  (Conn (ConnectionActions st _ connRead _)) <- (getStaticRep :: Eff es (StaticRep (Conn c)))
-  unsafeEff_ (connRead st n)
+  (Conn (ConnectionActions _ _ connRead _)) <- (getStaticRep :: Eff es (StaticRep (Conn c)))
+  unsafeEff_ (connRead n)
 
 writeBytes ::
   forall c es.
@@ -107,8 +107,8 @@ writeBytes ::
   BS.StrictByteString ->
   Eff es ()
 writeBytes bytes = do
-  (Conn (ConnectionActions st writerMutex _ connWrite)) <- (getStaticRep :: Eff es (StaticRep (Conn c)))
-  let doWriteBytes (_lock :: ()) = unsafeEff_ (connWrite st bytes)
+  (Conn (ConnectionActions _ writerMutex _ connWrite)) <- (getStaticRep :: Eff es (StaticRep (Conn c)))
+  let doWriteBytes (_lock :: ()) = unsafeEff_ (connWrite bytes)
   withMVar
     writerMutex
     doWriteBytes
