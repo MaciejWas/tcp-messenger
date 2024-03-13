@@ -9,6 +9,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE GADTs #-}
 
 module TcpMsg.Effects.Supplier where
 
@@ -20,13 +21,9 @@ import Effectful
     IOE,
     (:>),
   )
-import Effectful.Dispatch.Static
-  ( SideEffects (WithSideEffects),
-    StaticRep,
-    getStaticRep,
-    unsafeEff_,
-  )
+import Effectful (  Dispatch(Dynamic) )
 import TcpMsg.Effects.Connection (ConnectionHandle, ConnectionActions, ConnectionHandleRef, Conn, runConnection)
+import Effectful.Dispatch.Dynamic (HasCallStack, send)
 
 ----------------------------------------------------------------------------------------------------------
 
@@ -44,11 +41,14 @@ data ConnSupplierActions c
 ----------------------------------------------------------------------------------------------------------
 
 -- | Effect definition
-data ConnSupplier a :: Effect
+data ConnSupplier conn :: Effect where
+  GetNextConn :: ConnSupplier conn m (ConnectionActions conn)
+  Finalize :: a -> ConnSupplier conn m ()
 
-type instance DispatchOf (ConnSupplier a) = Static WithSideEffects
+type instance DispatchOf (ConnSupplier a) = Dynamic
 
-newtype instance StaticRep (ConnSupplier a) = ConnSupplier (ConnSupplierActions a)
+nextConnection :: forall conn es. (HasCallStack, ConnSupplier conn :> es) => Eff es (ConnectionActions conn)
+nextConnection = send GetNextConn
 
 ----------------------------------------------------------------------------------------------------------
 
@@ -60,8 +60,6 @@ eachConnectionDo ::
   Eff (Conn c ': es) () ->
   Eff es ()
 eachConnectionDo action = do
-  (ConnSupplier (ConnSupplierActions nextConnection initConnection)) <- (getStaticRep :: Eff es (StaticRep (ConnSupplier c)))
-  connHandle <- unsafeEff_ nextConnection
-  connActions <- unsafeEff_ (initConnection connHandle)
-  runConnection connActions action
+  connHandle <- nextConnection
+  runConnection connHandle action
   eachConnectionDo action
