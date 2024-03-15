@@ -6,41 +6,59 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE TypeApplications #-}
 
 module TcpMsg.Effects.Supplier where
 
 import Effectful
-  ( Dispatch (Dynamic, Static),
+  ( Dispatch (Static),
     DispatchOf,
     Eff,
     Effect,
     IOE,
     (:>),
   )
-import Effectful.Dispatch.Dynamic (HasCallStack, send)
-import TcpMsg.Effects.Connection (Conn, ConnectionActions, ConnectionHandle, ConnectionHandleRef, runConnection)
+
+import Effectful.Dispatch.Static
+  ( SideEffects (WithSideEffects),
+    StaticRep, getStaticRep, unsafeEff_, evalStaticRep,
+  )
+import TcpMsg.Effects.Connection (Conn, ConnectionActions, runConnection)
+import Effectful.Concurrent (Concurrent, forkFinally)
 
 ----------------------------------------------------------------------------------------------------------
 
--- | Effect definition
-data ConnSupplier conn :: Effect where
-  GetNextConn :: ConnSupplier conn m (ConnectionActions conn)
+data ConnSupplier a :: Effect
 
-type instance DispatchOf (ConnSupplier a) = Dynamic
+type instance DispatchOf (ConnSupplier a) = Static WithSideEffects
 
-nextConnection :: forall conn es. (HasCallStack, ConnSupplier conn :> es) => Eff es (ConnectionActions conn)
-nextConnection = send GetNextConn
+newtype instance StaticRep (ConnSupplier a) = ConnSupplier (ConnSupplierActions a)
+
+----------------------------------------------------------------------------------------------------------
+
+data ConnSupplierActions c
+  = ConnSupplierActions
+      (IO (ConnectionActions c))
+
+nextConnection :: forall c es. ( ConnSupplier c :> es) => Eff es (ConnectionActions c)
+nextConnection = do
+  (ConnSupplier (ConnSupplierActions nextConnection' )) <- (getStaticRep :: Eff es (StaticRep (ConnSupplier c)))
+  unsafeEff_ nextConnection'
+
+runConnSupplier :: forall c es a. (IOE :> es ) => ConnSupplierActions c -> Eff (ConnSupplier c ': es) a -> Eff es a
+runConnSupplier connectionActions = evalStaticRep (ConnSupplier connectionActions)
 
 ----------------------------------------------------------------------------------------------------------
 
 eachConnectionDo ::
   forall c es.
   ( IOE :> es,
-    ConnSupplier c :> es
+    ConnSupplier c :> es,
+    Concurrent :> es
   ) =>
   Eff (Conn c ': es) () ->
   Eff es ()
 eachConnectionDo action = do
   connHandle <- nextConnection
-  runConnection connHandle action
+  _ <- forkFinally (runConnection connHandle action) (\e -> return ())
   eachConnectionDo action

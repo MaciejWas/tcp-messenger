@@ -4,8 +4,10 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE NamedFieldPuns #-}
 
-import Control.Concurrent (MVar)
+import Control.Concurrent (MVar, threadDelay, newMVar, putMVar, readMVar, newEmptyMVar, takeMVar)
 import Control.Exception (evaluate)
 import qualified Data.ByteString as BS
 import Data.Serialize (Serialize)
@@ -17,10 +19,9 @@ import Effectful
     Effect,
     IOE,
     runEff,
-    (:>),
+    (:>), MonadIO (liftIO),
   )
 import Effectful.Concurrent (Concurrent, runConcurrent)
-import Effectful.Concurrent.MVar (newMVar, withMVar)
 import Effectful.Concurrent.STM (STM, atomically, modifyTVar, newTVar, newTVarIO, readTVar, writeTVar, readTVarIO)
 import GHC.Base (undefined)
 import TcpMsg.Effects.Connection
@@ -31,6 +32,8 @@ import TcpMsg.Effects.Connection
     Conn,
     mkConnectionActions, runConnection,
   )
+import TcpMsg.Effects.Supplier (nextConnection, eachConnectionDo)
+
 import TcpMsg.Data (mkMsg, Header (Header))
 import Test.Hspec
   ( anyException,
@@ -43,9 +46,12 @@ import Test.Hspec
 import Test.QuickCheck (Testable (property))
 import Test.QuickCheck.Instances.ByteString
 import Test.QuickCheck.Monadic (monadicIO, run, assert)
+
+import TcpMsg.Effects.Connection (readBytes, writeBytes)
 import TcpMsg.Parsing (parseMsg, parseHeader)
-import TcpMsg.Server.Tcp (runTcpServer)
+import TcpMsg.Server.Tcp (runTcpServer, defaultServerOpts, runTcpClient,ServerOpts(ServerOpts), ClientOpts (ClientOpts, serverHost, serverPort), ServerHandle (ServerHandle, kill), ServerOpts (port))
 import Control.Monad (void)
+import Network.Simple.TCP (Socket)
 
 data MockConnStream
   = MockConnStream
@@ -61,7 +67,7 @@ testConnActions ::
   ConnectionHandleRef MockConnStream ->
   Eff es (ConnectionActions MockConnStream)
 testConnActions connHandleRef = do
-  mkConnectionActions connHandleRef mockConnStreamRead mockConnStreamWrite
+  mkConnectionActions connHandleRef mockConnStreamRead mockConnStreamWrite mockConnStreamFinalize
   where
     mockConnStreamWrite :: BS.StrictByteString -> IO ()
     mockConnStreamWrite bytes = runEff (runConcurrent (atomically go))
@@ -78,6 +84,9 @@ testConnActions connHandleRef = do
           let (read, remain) = BS.splitAt size inp
           writeTVar connHandleRef (ConnectionHandle info (MockConnStream remain outp))
           return read
+
+    mockConnStreamFinalize :: IO ()
+    mockConnStreamFinalize = return ()
 
 inConnectionContext ::
   forall a x.
@@ -96,12 +105,86 @@ inConnectionContext messages action =
 
 --------------------------------------------------------------------------------------------------------------------------------------------------------
 
+sendBasicMessage :: forall es. (Concurrent :> es, Conn Socket :> es) => Eff es ()
+sendBasicMessage = void (writeBytes @Socket "AAAA")
+
+-- rcvBasicMessage :: forall es. (Concurrent :> es, IOE :> es, Conn Socket :> es) => Eff es ()
+-- rcvBasicMessage = readBytes @es @Socket 2 >>= \x -> liftIO (print x)
+
+runServer opts action = runEff (runConcurrent (runTcpServer opts action))
+runClient opts action = runEff (runConcurrent (runTcpClient opts action))
+
 main :: IO ()
 main = hspec $ do
   describe "TcpMsg" $ do
     describe "Server" $ do
       it "can start a TCP server" $ do
-        runEff (runConcurrent (runTcpServer (return ())))
+        (ServerHandle kill tid) <- runServer defaultServerOpts (return ())
+        threadDelay 10000
+        kill
+
+      it "can start a TCP client" $ do
+        let srvopts = ServerOpts { port = 4455 }
+        (ServerHandle {kill}) <- runServer srvopts (return ())
+
+        let clientopts = ClientOpts { serverHost = "localhost", serverPort = 4455 }
+        runClient clientopts (return ())
+
+        threadDelay 10000
+        kill
+
+      it "can receive connections" $ do
+        let srvopts = ServerOpts { port = 4455 }
+        connReceived <- newEmptyMVar
+
+        (ServerHandle { kill }) <- runServer srvopts (do
+          c <- nextConnection @Socket
+          liftIO (putMVar connReceived True)
+          )
+
+        let clientopts = ClientOpts { serverHost = "localhost", serverPort = 4455  }
+        runClient clientopts sendBasicMessage
+
+        connReceivedVal <- takeMVar connReceived
+        connReceivedVal `shouldBe` True
+
+        kill
+
+      it "can receive data" $ do
+        let bytes = "AAAAAA"
+
+        let srvopts = ServerOpts { port = 4455 }
+        bytesReceived <- newEmptyMVar
+
+        (ServerHandle {kill}) <- runServer srvopts (do
+          eachConnectionDo @Socket (do
+            bs <- readBytes @Socket (BS.length bytes)
+            liftIO (putMVar bytesReceived bs)
+            )
+          )
+
+        let clientopts = ClientOpts { serverHost = "localhost", serverPort = 4455  }
+        runClient 
+          clientopts 
+          (void (writeBytes @Socket bytes))
+
+        connReceivedVal <- takeMVar bytesReceived
+        connReceivedVal `shouldBe` bytes
+
+        kill
+
+      it "can stop a TCP server" $ do
+        let srvopts = ServerOpts { port = 4455  }
+        (ServerHandle {kill=kill1}) <- runServer srvopts (return ())
+
+        threadDelay 1000
+        kill1
+        threadDelay 1000
+
+        let srvopts = ServerOpts { port = 4455  }
+        (ServerHandle {kill=kill2}) <- runServer srvopts (return ())
+
+        kill2
 
     describe "Data" $ do
       describe "mkMsg" $ do

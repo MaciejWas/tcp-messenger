@@ -14,7 +14,7 @@ import Data.ByteString.Lazy (LazyByteString, toStrict)
 import Data.Serialize (Serialize, decode)
 import Effectful (Eff, IOE, (:>))
 import Effectful.Concurrent (Concurrent, forkIO)
-import TcpMsg.Effects.Connection (Conn, ConnSupplier, eachConnectionDo, readBytes, write)
+import TcpMsg.Effects.Connection (Conn, readBytes, write)
 import TcpMsg.Data (Header (Header), headersize)
 
 parseMsg :: forall connState message es. (Conn connState :> es, Serialize message) => Eff es (Header, message)
@@ -34,7 +34,7 @@ newBuffer = buffer @connState (mempty :: LazyByteString)
 
 buffer :: forall connState message es. (Conn connState :> es, Serialize message) => LazyByteString -> Int -> Eff es message
 buffer currBuffer remainingBytes = do
-  newBytes <- readBytes @es @connState remainingBytes
+  newBytes <- readBytes @connState remainingBytes
   let bytesInLastMessage = BS.length newBytes
   if bytesInLastMessage >= remainingBytes
     then
@@ -45,40 +45,3 @@ buffer currBuffer remainingBytes = do
       let updatedBuffer = currBuffer <> BS.fromStrict newBytes
           updatedRemaining = remainingBytes - bytesInLastMessage
        in buffer @connState updatedBuffer updatedRemaining
-
-----------------------------------------------------------------------------------------------------------
--- 20
-
-eachRequestDo ::
-  forall connState es a b.
-  ( Concurrent :> es,
-    Serialize a,
-    Serialize b
-  ) =>
-  (a -> Eff (Conn connState ': es) b) ->
-  Eff (Conn connState ': es) ()
-eachRequestDo respond = do
-  (Header messageId _, request) <- parseMsg @connState
-  inParallel (respond request >>= write @connState messageId)
-  eachRequestDo @connState @es @a @b respond
-
-----------------------------------------------------------------------------------------------------------
-
-runServer ::
-  forall connState es a b.
-  ( IOE :> es,
-    Concurrent :> es,
-    ConnSupplier connState :> es,
-    Serialize a,
-    Serialize b
-  ) =>
-  (a -> Eff (Conn connState ': es) b) ->
-  Eff es ()
-runServer respond =
-  let respondToRequests = eachRequestDo @connState @es @a @b respond
-   in eachConnectionDo (inParallel respondToRequests)
-
-----------------------------------------------------------------------------------------------------------
-
-inParallel :: forall es. (Concurrent :> es) => Eff es () -> Eff es ()
-inParallel = void . forkIO
