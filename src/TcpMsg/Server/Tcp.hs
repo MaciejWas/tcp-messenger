@@ -51,6 +51,7 @@ import qualified Network.Socket as Net
 import qualified Network.Socket.ByteString as Net
 import TcpMsg.Effects.Connection (Conn, ConnectionActions, ConnectionHandle (ConnectionHandle), ConnectionInfo (ConnectionInfo), mkConnectionActions, runConnection)
 import TcpMsg.Effects.Supplier (ConnSupplier, ConnSupplierActions (ConnSupplierActions), runConnSupplier)
+import TcpMsg.Effects.Client (Client)
 
 ----------------------------------------------------------------------------------------------------------
 
@@ -158,12 +159,15 @@ data ServerHandle = ServerHandle
     threadId :: ThreadId
   }
 
-runTcpServer ::
+
+-- | Runs a `ConnSupplier` effect. In other words, provides an environment where
+-- | a new connection can be awaited and handled
+runTcpConnSupplier ::
   (IOE :> es, Concurrent :> es) =>
   ServerOpts ->
   Eff (ConnSupplier Net.Socket ': es) () ->
   Eff es ServerHandle
-runTcpServer
+runTcpConnSupplier
   opts
   operation =
     do
@@ -190,13 +194,15 @@ data ClientOpts = ClientOpts
     serverPort :: Net.PortNumber
   }
 
-runTcpClient ::
+-- | Runs a `Connection` effect. In other words, provides an environment where
+-- | data can be sent / read
+runTcpConnection ::
   forall a es.
   (IOE :> es, Concurrent :> es) =>
   ClientOpts ->
   Eff (Conn Net.Socket ': es) a ->
   Eff es a
-runTcpClient opts operation =
+runTcpConnection opts operation =
   do
     serverSocket <- liftIO (spawnClient opts)
     connRef <-
@@ -215,3 +221,4 @@ runTcpClient opts operation =
     runConnection
       connActions
       operation
+

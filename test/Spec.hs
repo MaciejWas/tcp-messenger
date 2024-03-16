@@ -49,9 +49,10 @@ import Test.QuickCheck.Monadic (monadicIO, run, assert)
 
 import TcpMsg.Effects.Connection (readBytes, writeBytes)
 import TcpMsg.Parsing (parseMsg, parseHeader)
-import TcpMsg.Server.Tcp (runTcpServer, defaultServerOpts, runTcpClient,ServerOpts(ServerOpts), ClientOpts (ClientOpts, serverHost, serverPort), ServerHandle (ServerHandle, kill), ServerOpts (port))
+import TcpMsg.Server.Tcp (runTcpConnSupplier, defaultServerOpts, runTcpConnection,ServerOpts(ServerOpts), ClientOpts (ClientOpts, serverHost, serverPort), ServerHandle (ServerHandle, kill), ServerOpts (port))
 import Control.Monad (void)
 import Network.Socket (Socket)
+import TcpMsg.Server.Abstract (runServer)
 
 data MockConnStream
   = MockConnStream
@@ -105,24 +106,42 @@ inConnectionContext messages action =
 
 --------------------------------------------------------------------------------------------------------------------------------------------------------
 
-runServer opts action = runEff (runConcurrent (runTcpServer opts action))
-runClient opts action = runEff (runConcurrent (runTcpClient opts action))
+runTcpConnSupplier' opts action = runEff (runConcurrent (runTcpConnSupplier opts action))
+runTcpConnection' opts action = runEff (runConcurrent (runTcpConnection opts action))
 
 main :: IO ()
 main = hspec $ do
   describe "TcpMsg" $ do
+    describe "Client" $ do
+      it "can send a message to a server" $ do
+
+        -- Start a server which responds with x + 1
+        let srvopts = ServerOpts { port = 4455 }
+        connReceived <- newEmptyMVar
+        (ServerHandle { kill }) <- runTcpConnSupplier' srvopts (do
+          runServer @Int @Int @Socket (\(x :: Int) -> return (x + 1))
+          )
+
+        let clientopts = ClientOpts { serverHost = "localhost", serverPort = 4455  }
+        runTcpConnection' clientopts (void (writeBytes @Socket "AAAA"))
+
+        -- connReceivedVal <- takeMVar connReceived
+        -- connReceivedVal `shouldBe` True
+
+        kill
+
     describe "Server" $ do
       it "can start a TCP server" $ do
-        (ServerHandle kill tid) <- runServer defaultServerOpts (return ())
+        (ServerHandle kill tid) <- runTcpConnSupplier' defaultServerOpts (return ())
         threadDelay 10000
         kill
 
       it "can start a TCP client" $ do
         let srvopts = ServerOpts { port = 4455 }
-        (ServerHandle {kill}) <- runServer srvopts (return ())
+        (ServerHandle {kill}) <- runTcpConnSupplier' srvopts (return ())
 
         let clientopts = ClientOpts { serverHost = "localhost", serverPort = 4455 }
-        runClient clientopts (return ())
+        runTcpConnection' clientopts (return ())
 
         threadDelay 10000
         kill
@@ -131,13 +150,13 @@ main = hspec $ do
         let srvopts = ServerOpts { port = 4455 }
         connReceived <- newEmptyMVar
 
-        (ServerHandle { kill }) <- runServer srvopts (do
+        (ServerHandle { kill }) <- runTcpConnSupplier' srvopts (do
           c <- nextConnection @Socket
           liftIO (putMVar connReceived True)
           )
 
         let clientopts = ClientOpts { serverHost = "localhost", serverPort = 4455  }
-        runClient clientopts (void (writeBytes @Socket "AAAA"))
+        runTcpConnection' clientopts (void (writeBytes @Socket "AAAA"))
 
         connReceivedVal <- takeMVar connReceived
         connReceivedVal `shouldBe` True
@@ -150,7 +169,7 @@ main = hspec $ do
         let srvopts = ServerOpts { port = 4455 }
         bytesReceived <- newEmptyMVar
 
-        (ServerHandle {kill}) <- runServer srvopts (do
+        (ServerHandle {kill}) <- runTcpConnSupplier' srvopts (do
           eachConnectionDo @Socket (do
             bs <- readBytes @Socket (BS.length bytes)
             liftIO (putMVar bytesReceived bs)
@@ -158,7 +177,7 @@ main = hspec $ do
           )
 
         let clientopts = ClientOpts { serverHost = "localhost", serverPort = 4455  }
-        runClient 
+        runTcpConnection' 
           clientopts 
           (void (writeBytes @Socket bytes))
 
@@ -169,14 +188,14 @@ main = hspec $ do
 
       it "can stop a TCP server" $ do
         let srvopts = ServerOpts { port = 4455  }
-        (ServerHandle {kill=kill1}) <- runServer srvopts (return ())
+        (ServerHandle {kill=kill1}) <- runTcpConnSupplier' srvopts (return ())
 
         threadDelay 1000
         kill1
         threadDelay 1000
 
         let srvopts = ServerOpts { port = 4455  }
-        (ServerHandle {kill=kill2}) <- runServer srvopts (return ())
+        (ServerHandle {kill=kill2}) <- runTcpConnSupplier' srvopts (return ())
 
         kill2
 

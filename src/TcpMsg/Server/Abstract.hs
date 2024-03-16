@@ -34,7 +34,7 @@ eachRequestDo respond = do
 ----------------------------------------------------------------------------------------------------------
 
 runServer ::
-  forall connState es a b.
+  forall a b connState es.
   ( IOE :> es,
     Concurrent :> es,
     ConnSupplier connState :> es,
