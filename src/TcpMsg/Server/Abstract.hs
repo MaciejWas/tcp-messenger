@@ -9,9 +9,7 @@
 module TcpMsg.Server.Abstract where
 
 import Control.Monad (void)
-import qualified Data.ByteString as BS
-import Data.ByteString.Lazy (LazyByteString, toStrict)
-import Data.Serialize (Serialize, decode)
+import Data.Serialize (Serialize)
 import Effectful (Eff, IOE, (:>))
 import Effectful.Concurrent (Concurrent, forkIO)
 import TcpMsg.Effects.Connection (Conn, readBytes, write)

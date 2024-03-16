@@ -14,7 +14,7 @@ import Data.ByteString.Lazy (LazyByteString, toStrict)
 import Data.Serialize (Serialize, decode)
 import Effectful (Eff, IOE, (:>))
 import Effectful.Concurrent (Concurrent, forkIO)
-import TcpMsg.Effects.Connection (Conn, readBytes, write)
+import TcpMsg.Effects.Connection (Conn, readBytes)
 import TcpMsg.Data (Header (Header), headersize)
 
 parseMsg :: forall connState message es. (Conn connState :> es, Serialize message) => Eff es (Header, message)

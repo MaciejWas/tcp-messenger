@@ -34,13 +34,14 @@ import Effectful.Dispatch.Static
     getStaticRep,
     unsafeEff_,
   )
-import TcpMsg.Data (ClientId, mkMsg)
+import TcpMsg.Data (ClientId, mkMsg, UnixMsgTime)
+import Data.UnixTime (UnixTime)
 
 ----------------------------------------------------------------------------------------------------------
 
 type WriterMutex = MVar ()
 
-data ServerOpts = ServerOpts
+type MessageID = Int
 
 data ConnectionInfo
   = ConnectionInfo
@@ -123,7 +124,7 @@ write ::
     Conn c :> es,
     Serialize a
   ) =>
-  Int ->
+  UnixMsgTime ->
   a ->
   Eff es ()
 write messageId obj = writeBytes @c (mkMsg messageId obj)
@@ -132,18 +133,6 @@ runConnection :: forall c a es. (IOE :> es) => ConnectionActions c -> Eff (Conn 
 runConnection connectionActions = evalStaticRep (Conn connectionActions)
 
 ----------------------------------------------------------------------------------------------------------
-
-data ClientActions a b = ClientActions
-  { ask :: a -> IO (),
-    poll :: Int -> IO b
-  }
-
--- | Effect definition
-data Client a b :: Effect
-
-type instance DispatchOf (Client a b) = Static WithSideEffects
-
-newtype instance StaticRep (Client a b) = Client (ClientActions a b)
 
 ----------------------------------------------------------------------------------------------------------
 -- Various helpers

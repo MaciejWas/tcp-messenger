@@ -34,7 +34,7 @@ import TcpMsg.Effects.Connection
   )
 import TcpMsg.Effects.Supplier (nextConnection, eachConnectionDo)
 
-import TcpMsg.Data (mkMsg, Header (Header))
+import TcpMsg.Data (mkMsg, Header (Header), UnixMsgTime)
 import Test.Hspec
   ( anyException,
     describe,
@@ -51,7 +51,7 @@ import TcpMsg.Effects.Connection (readBytes, writeBytes)
 import TcpMsg.Parsing (parseMsg, parseHeader)
 import TcpMsg.Server.Tcp (runTcpServer, defaultServerOpts, runTcpClient,ServerOpts(ServerOpts), ClientOpts (ClientOpts, serverHost, serverPort), ServerHandle (ServerHandle, kill), ServerOpts (port))
 import Control.Monad (void)
-import Network.Simple.TCP (Socket)
+import Network.Socket (Socket)
 
 data MockConnStream
   = MockConnStream
@@ -91,7 +91,7 @@ testConnActions connHandleRef = do
 inConnectionContext ::
   forall a x.
   (Serialize a) =>
-  [(Int, a)] ->
+  [(UnixMsgTime, a)] ->
   Eff '[Conn MockConnStream, Concurrent, IOE] x ->
   IO x
 inConnectionContext messages action =
@@ -104,12 +104,6 @@ inConnectionContext messages action =
   ))
 
 --------------------------------------------------------------------------------------------------------------------------------------------------------
-
-sendBasicMessage :: forall es. (Concurrent :> es, Conn Socket :> es) => Eff es ()
-sendBasicMessage = void (writeBytes @Socket "AAAA")
-
--- rcvBasicMessage :: forall es. (Concurrent :> es, IOE :> es, Conn Socket :> es) => Eff es ()
--- rcvBasicMessage = readBytes @es @Socket 2 >>= \x -> liftIO (print x)
 
 runServer opts action = runEff (runConcurrent (runTcpServer opts action))
 runClient opts action = runEff (runConcurrent (runTcpClient opts action))
@@ -143,7 +137,7 @@ main = hspec $ do
           )
 
         let clientopts = ClientOpts { serverHost = "localhost", serverPort = 4455  }
-        runClient clientopts sendBasicMessage
+        runClient clientopts (void (writeBytes @Socket "AAAA"))
 
         connReceivedVal <- takeMVar connReceived
         connReceivedVal `shouldBe` True
@@ -151,7 +145,7 @@ main = hspec $ do
         kill
 
       it "can receive data" $ do
-        let bytes = "AAAAAA"
+        let bytes = "AAAAAAFASD FASD FASDF ASD FFF FDASF DAS"
 
         let srvopts = ServerOpts { port = 4455 }
         bytesReceived <- newEmptyMVar
@@ -189,30 +183,17 @@ main = hspec $ do
     describe "Data" $ do
       describe "mkMsg" $ do
         it "creates a message which contains the payload" $ do
-          property $ \(messageId :: Int) (payload :: BS.ByteString) -> BS.isInfixOf payload (mkMsg messageId payload)
+          property $ \(messageId :: UnixMsgTime) (payload :: BS.ByteString) -> BS.isInfixOf payload (mkMsg messageId payload)
 
     describe "ParsingBuffers" $ do
       describe "parseMsg" $ do
         it "parses a header" $ do
-          property $ \(messageId :: Int) (payload :: BS.ByteString)  -> monadicIO $ do
+          property $ \(messageId :: UnixMsgTime) (payload :: BS.ByteString)  -> monadicIO $ do
             (Header responseMsgId _) <- run (inConnectionContext [(messageId, payload)] (parseHeader @MockConnStream))
             assert (responseMsgId == messageId)
 
         it "parses a message" $ do
-          property $ \(messageId :: Int) (payload :: BS.ByteString)  -> monadicIO $ do
+          property $ \(messageId :: UnixMsgTime) (payload :: BS.ByteString)  -> monadicIO $ do
             (Header responseMsgId _, response) <- run (inConnectionContext [(messageId, payload)] (parseMsg @MockConnStream @BS.ByteString))
             assert (response == payload)
             assert (responseMsgId == messageId)
-
-
--- QuickCheck
--- (id, payload) -> ByteString ->
-
--- it "returns the first element of a list" $ do
---   head [23 ..] `shouldBe` (23 :: Int)
-
--- it "returns the first element of an *arbitrary* list" $
---   property $ \x xs -> head (x:xs) == (x :: Int)
-
--- it "throws an exception if used with an empty list" $ do
---   evaluate (head []) `shouldThrow` anyException
