@@ -53,6 +53,8 @@ import TcpMsg.Server.Tcp (runTcpConnSupplier, defaultServerOpts, runTcpConnectio
 import Control.Monad (void)
 import Network.Socket (Socket)
 import TcpMsg.Server.Abstract (runServer)
+import TcpMsg.Effects.Client (runClient, ask)
+import Effectful.Concurrent.Async (wait)
 
 data MockConnStream
   = MockConnStream
@@ -113,20 +115,49 @@ main :: IO ()
 main = hspec $ do
   describe "TcpMsg" $ do
     describe "Client" $ do
-      it "can send a message to a server" $ do
+      it "can send a single message to a server" $ do
+        responseReceived <- newEmptyMVar
+        let request = 42
 
         -- Start a server which responds with x + 1
         let srvopts = ServerOpts { port = 4455 }
-        connReceived <- newEmptyMVar
         (ServerHandle { kill }) <- runTcpConnSupplier' srvopts (do
-          runServer @Int @Int @Socket (\(x :: Int) -> return (x + 1))
+          runServer @Int @Int @Socket (\x -> return (x + 1))
           )
 
+        -- Start a client which sends a single request
         let clientopts = ClientOpts { serverHost = "localhost", serverPort = 4455  }
-        runTcpConnection' clientopts (void (writeBytes @Socket "AAAA"))
+        runTcpConnection' clientopts (runClient @Int @Int @Socket (do
+          response <- ask @Int @Int @Socket request >>= wait
+          liftIO (putMVar responseReceived response)
+          return ()
+          ))
 
-        -- connReceivedVal <- takeMVar connReceived
-        -- connReceivedVal `shouldBe` True
+        responseReceivedVal <- takeMVar responseReceived
+        responseReceivedVal `shouldBe` (request + 1)
+
+        kill
+
+      it "can send a multiple messages to a server" $ do
+        responsesReceived <- newEmptyMVar
+        let requests = [1..3]
+
+        -- Start a server which responds with x + 1
+        let srvopts = ServerOpts { port = 4455 }
+        (ServerHandle { kill }) <- runTcpConnSupplier' srvopts (do
+          runServer @Int @Int @Socket (\x -> return (x + 1))
+          )
+
+        -- Start a client which sends a single request
+        let clientopts = ClientOpts { serverHost = "localhost", serverPort = 4455  }
+        runTcpConnection' clientopts (runClient @Int @Int @Socket (do
+          futureResponses <- mapM (ask @Int @Int @Socket) requests
+          responses <- mapM wait (reverse futureResponses)
+          liftIO (putMVar responsesReceived responses)
+          ))
+
+        responsesReceivedVal <- takeMVar responsesReceived
+        responsesReceivedVal `shouldBe` map (+ 1) (reverse requests)
 
         kill
 
