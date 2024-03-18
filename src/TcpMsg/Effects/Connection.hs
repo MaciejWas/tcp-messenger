@@ -118,7 +118,7 @@ writeBytes bytes = do
     writerMutex
     doWriteBytes
 
-write ::
+sendMessage ::
   forall c a es.
   ( Concurrent :> es,
     Conn c :> es,
@@ -127,7 +127,7 @@ write ::
   UnixMsgTime ->
   a ->
   Eff es ()
-write messageId obj = writeBytes @c (mkMsg messageId obj)
+sendMessage messageId obj = writeBytes @c (mkMsg messageId obj)
 
 runConnection :: forall c a es. (IOE :> es) => ConnectionActions c -> Eff (Conn c ': es) a -> Eff es a
 runConnection connectionActions = evalStaticRep (Conn connectionActions)

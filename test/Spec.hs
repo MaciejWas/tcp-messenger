@@ -6,6 +6,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE DeriveGeneric #-}
 
 import Control.Concurrent (MVar, threadDelay, newMVar, putMVar, readMVar, newEmptyMVar, takeMVar)
 import Control.Exception (evaluate)
@@ -24,17 +25,7 @@ import Effectful
 import Effectful.Concurrent (Concurrent, runConcurrent)
 import Effectful.Concurrent.STM (STM, atomically, modifyTVar, newTVar, newTVarIO, readTVar, writeTVar, readTVarIO)
 import GHC.Base (undefined)
-import TcpMsg.Effects.Connection
-  ( ConnectionActions (ConnectionActions),
-    ConnectionHandle (ConnectionHandle),
-    ConnectionHandleRef,
-    ConnectionInfo (ConnectionInfo),
-    Conn,
-    mkConnectionActions, runConnection,
-  )
-import TcpMsg.Effects.Supplier (nextConnection, eachConnectionDo)
-
-import TcpMsg.Data (mkMsg, Header (Header), UnixMsgTime)
+import GHC.Generics (Generic)
 import Test.Hspec
   ( anyException,
     describe,
@@ -47,14 +38,32 @@ import Test.QuickCheck (Testable (property))
 import Test.QuickCheck.Instances.ByteString
 import Test.QuickCheck.Monadic (monadicIO, run, assert)
 
-import TcpMsg.Effects.Connection (readBytes, writeBytes)
-import TcpMsg.Parsing (parseMsg, parseHeader)
-import TcpMsg.Server.Tcp (runTcpConnSupplier, defaultServerOpts, runTcpConnection,ServerOpts(ServerOpts), ClientOpts (ClientOpts, serverHost, serverPort), ServerHandle (ServerHandle, kill), ServerOpts (port))
 import Control.Monad (void)
 import Network.Socket (Socket)
-import TcpMsg.Server.Abstract (runServer)
-import TcpMsg.Effects.Client (runClient, ask)
+
 import Effectful.Concurrent.Async (wait)
+
+import TcpMsg.Parsing (parseMsg, parseHeader)
+
+import TcpMsg.Server.Abstract (runServer)
+import TcpMsg.Server.Tcp (runTcpConnSupplier, defaultServerOpts, ServerOpts(ServerOpts), ServerHandle (ServerHandle, kill), ServerOpts (port))
+
+import TcpMsg.Client.Abstract (runClient, ask)
+import TcpMsg.Client.Tcp (ClientOpts (ClientOpts, serverHost, serverPort), runTcpConnection)
+
+import TcpMsg.Effects.Connection
+    ( ConnectionActions(ConnectionActions),
+      ConnectionHandle(ConnectionHandle),
+      ConnectionHandleRef,
+      ConnectionInfo(ConnectionInfo),
+      Conn,
+      mkConnectionActions,
+      runConnection,
+      readBytes,
+      writeBytes )
+import TcpMsg.Effects.Supplier (nextConnection, eachConnectionDo)
+
+import TcpMsg.Data (mkMsg, Header (Header), UnixMsgTime)
 
 data MockConnStream
   = MockConnStream
@@ -108,6 +117,18 @@ inConnectionContext messages action =
 
 --------------------------------------------------------------------------------------------------------------------------------------------------------
 
+data SomeData = SomeData {
+  foo :: String,
+  bar :: [Int],
+  baz :: Bool
+} deriving (Generic, Show, Eq)
+
+instance Serialize SomeData
+
+mkSomeData (i :: Int) = SomeData { foo = show (i * 100), bar = [i..(i+30)], baz = False}
+
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+
 runTcpConnSupplier' opts action = runEff (runConcurrent (runTcpConnSupplier opts action))
 runTcpConnection' opts action = runEff (runConcurrent (runTcpConnection opts action))
 
@@ -140,24 +161,26 @@ main = hspec $ do
 
       it "can send a multiple messages to a server" $ do
         responsesReceived <- newEmptyMVar
-        let requests = [1..3]
 
-        -- Start a server which responds with x + 1
+        let requests = map mkSomeData [1..200]
+        let processRequest = \x -> x{baz=True}
+
+        -- Start a server which modifies the data
         let srvopts = ServerOpts { port = 4455 }
         (ServerHandle { kill }) <- runTcpConnSupplier' srvopts (do
-          runServer @Int @Int @Socket (\x -> return (x + 1))
+          runServer @SomeData @SomeData @Socket (return . processRequest)
           )
 
         -- Start a client which sends a single request
         let clientopts = ClientOpts { serverHost = "localhost", serverPort = 4455  }
-        runTcpConnection' clientopts (runClient @Int @Int @Socket (do
-          futureResponses <- mapM (ask @Int @Int @Socket) requests
+        runTcpConnection' clientopts (runClient @SomeData @SomeData @Socket (do
+          futureResponses <- mapM (ask @SomeData @SomeData @Socket) requests
           responses <- mapM wait (reverse futureResponses)
           liftIO (putMVar responsesReceived responses)
           ))
 
         responsesReceivedVal <- takeMVar responsesReceived
-        responsesReceivedVal `shouldBe` map (+ 1) (reverse requests)
+        responsesReceivedVal `shouldBe` map processRequest (reverse requests)
 
         kill
 
@@ -208,8 +231,8 @@ main = hspec $ do
           )
 
         let clientopts = ClientOpts { serverHost = "localhost", serverPort = 4455  }
-        runTcpConnection' 
-          clientopts 
+        runTcpConnection'
+          clientopts
           (void (writeBytes @Socket bytes))
 
         connReceivedVal <- takeMVar bytesReceived

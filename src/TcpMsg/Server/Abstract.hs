@@ -12,11 +12,11 @@ import Control.Monad (void)
 import Data.Serialize (Serialize)
 import Effectful (Eff, IOE, (:>))
 import Effectful.Concurrent (Concurrent, forkIO)
-import TcpMsg.Effects.Connection (Conn, readBytes, write)
+import TcpMsg.Effects.Connection (Conn, readBytes, sendMessage)
 import TcpMsg.Effects.Supplier ( eachConnectionDo, ConnSupplier )
 import TcpMsg.Data (Header (Header), headersize)
 import TcpMsg.Parsing (parseMsg)
-
+import Effectful.Dispatch.Static (unsafeEff_)
 
 eachRequestDo ::
   forall connState es a b.
@@ -24,11 +24,11 @@ eachRequestDo ::
     Serialize a,
     Serialize b
   ) =>
-  (a -> Eff (Conn connState ': es) b) ->
+  (a -> IO b) ->
   Eff (Conn connState ': es) ()
 eachRequestDo respond = do
   (Header messageId _, request) <- parseMsg @connState
-  inParallel (respond request >>= write @connState messageId)
+  inParallel (unsafeEff_ (respond request) >>= sendMessage @connState messageId)
   eachRequestDo @connState @es @a @b respond
 
 ----------------------------------------------------------------------------------------------------------
@@ -41,7 +41,7 @@ runServer ::
     Serialize a,
     Serialize b
   ) =>
-  (a -> Eff (Conn connState ': es) b) ->
+  (a -> IO b) ->
   Eff es ()
 runServer respond =
   let respondToRequests = eachRequestDo @connState @es @a @b respond
