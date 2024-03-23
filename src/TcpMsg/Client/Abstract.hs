@@ -81,7 +81,7 @@ blockingWaitForResponse unixTime = do
         msgs_ <- STM.readTVar msgs
         response <- M.lookup unixTime msgs_
         case response of
-          Just r -> STM.takeTMVar r
+          Just r -> M.delete unixTime msgs_ >> STM.takeTMVar r
           Nothing -> initMessage msgs_ unixTime >>= STM.takeTMVar
     )
   where

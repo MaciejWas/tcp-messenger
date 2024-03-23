@@ -31,8 +31,8 @@ import qualified Network.Socket.ByteString as Net
 import TcpMsg.Effects.Connection (Conn, ConnectionHandle (ConnectionHandle), ConnectionInfo (ConnectionInfo), mkConnectionActions, runConnection)
 import TcpMsg.Network (getAddr)
 
-spawnClient :: ClientOpts -> IO Net.Socket
-spawnClient (ClientOpts {serverHost, serverPort}) = do
+createSocket :: ClientOpts -> IO Net.Socket
+createSocket (ClientOpts {serverHost, serverPort}) = do
   addrInfo <- getAddr serverHost serverPort
   serverSocket <- Net.openSocket addrInfo
   Net.connect serverSocket (Net.addrAddress addrInfo)
@@ -53,15 +53,17 @@ runTcpConnection ::
   Eff es a
 runTcpConnection opts operation =
   do
-    serverSocket <- liftIO (spawnClient opts)
+    serverSocket <- liftIO (createSocket opts)
+
     connRef <-
       newTVarIO
         ( ConnectionHandle
             (ConnectionInfo "some conn")
             serverSocket
         )
+
     connActions <-
-      mkConnectionActions @es
+      mkConnectionActions
         connRef
         (Net.recv serverSocket)
         (Net.sendAll serverSocket)

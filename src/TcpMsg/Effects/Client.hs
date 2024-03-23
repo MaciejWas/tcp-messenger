@@ -64,7 +64,6 @@ newtype instance StaticRep (Client a b) = Client (ClientState a b)
 newMessageId :: forall a b es. (Client a b :> es) => Eff es UnixMsgTime
 newMessageId = fromUnix <$> unsafeEff_ getUnixTime
 
-
 -- Get a map of pending messages
 pendingMessages :: forall a b es. (Client a b :> es) => Eff es (STM.TVar (MessageMap b))
 pendingMessages = do

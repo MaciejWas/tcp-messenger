@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -11,13 +12,15 @@ module Lib
 where
 
 import Data.Serialize (Serialize)
-import Effectful (Eff, runEff, (:>), IOE)
-import Effectful.Concurrent (runConcurrent, Concurrent)
+import Effectful (Eff, IOE, runEff, (:>))
+import Effectful.Concurrent (Concurrent, runConcurrent)
 import Network.Socket (Socket)
-
+import qualified TcpMsg.Client.Abstract as C (runClient)
+import TcpMsg.Client.Tcp (ClientOpts, runTcpConnection)
+import TcpMsg.Effects.Client (Client)
+import TcpMsg.Effects.Connection (Conn)
 import TcpMsg.Server.Abstract (runServer)
-import TcpMsg.Server.Tcp (ServerHandle (ServerHandle, kill), ServerOpts (ServerOpts, port), defaultServerOpts, runTcpConnSupplier)
-import TcpMsg.Client.Tcp (ClientOpts (ClientOpts, serverHost, serverPort), runTcpConnection)
+import TcpMsg.Server.Tcp (ServerOpts, ServerHandle, defaultServerOpts, runTcpConnSupplier)
 
 data ServerSettings a b es = ServerSettings
   { tcpOpts :: ServerOpts,
@@ -38,8 +41,15 @@ run ::
   ) =>
   ServerSettings a b es ->
   IO ServerHandle
-run (ServerSettings {tcpOpts, action})  = runEff (runConcurrent (runTcpConnSupplier tcpOpts (runServer @a @b @Socket action)))
+run (ServerSettings {tcpOpts, action}) = runEff (runConcurrent (runTcpConnSupplier tcpOpts (runServer @a @b @Socket action)))
 
--- runTcpConnSupplier' opts action = runEff (runConcurrent (runTcpConnSupplier opts action))
-
--- runClient opts action = runEff (runConcurrent (runTcpConnection opts action))
+runClient ::
+  forall a b es.
+  ( Serialize b,
+    Concurrent :> es,
+    IOE :> es
+  ) =>
+  ClientOpts ->
+  Eff (Client a b ': Conn Socket ': es) () ->
+  Eff es ()
+runClient opts action = runTcpConnection opts (C.runClient @a @b @Socket action)
