@@ -11,11 +11,13 @@
 {-# LANGUAGE TypeOperators #-}
 
 module TcpMsg.Effects.Connection where
-
+import GHC.Stack (HasCallStack)
 import Control.Concurrent (MVar)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as LBS
 import Data.Serialize (Serialize)
 import qualified Data.Text as T
+import Data.UnixTime (UnixTime)
 import Effectful
   ( Dispatch (Static),
     DispatchOf,
@@ -34,9 +36,7 @@ import Effectful.Dispatch.Static
     getStaticRep,
     unsafeEff_,
   )
-import TcpMsg.Data (ClientId, encodeMsg, UnixMsgTime, Message)
-import Data.UnixTime (UnixTime)
-import qualified Data.ByteString.Lazy as LBS
+import TcpMsg.Data (ClientId, Message, UnixMsgTime, encodeMsg)
 
 ----------------------------------------------------------------------------------------------------------
 
@@ -99,8 +99,13 @@ newtype instance StaticRep (Conn a) = Conn (ConnectionActions a)
 
 ----------------------------------------------------------------------------------------------------------
 
--- | Effectful operations
-readBytes :: forall c es. (Conn c :> es) => Int -> Eff es BS.StrictByteString
+readBytes ::
+  forall c es.
+  ( Conn c :> es,
+    HasCallStack
+  ) =>
+  Int ->
+  Eff es BS.StrictByteString
 readBytes n = do
   (Conn (ConnectionActions _ _ connRead _ _)) <- (getStaticRep :: Eff es (StaticRep (Conn c)))
   unsafeEff_ (connRead n)

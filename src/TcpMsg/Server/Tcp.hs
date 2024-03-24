@@ -13,6 +13,8 @@
 
 module TcpMsg.Server.Tcp where
 
+import Control.Exception (finally)
+
 import Control.Concurrent (ThreadId)
 import Effectful
   ( Eff,
@@ -39,19 +41,9 @@ import TcpMsg.Network (getAddr, startListening)
 
 ----------------------------------------------------------------------------------------------------------
 
--- | Effect definition
--- data Network :: Effect
-
--- type instance DispatchOf Network = Static WithSideEffects
-
--- newtype instance StaticRep Network = NetworkSocket Net.Socket
-
--- maximum number of queued connections
-
 data ServerOpts = ServerOpts
   { port :: Net.PortNumber
   }
-
 
 spawnServer :: ServerOpts -> IO Net.Socket
 spawnServer (ServerOpts {port}) = do
@@ -83,7 +75,6 @@ data ServerHandle = ServerHandle
     threadId :: ThreadId
   }
 
-
 -- | Runs a `ConnSupplier` effect. In other words, provides an environment where
 -- | a new connection can be awaited and handled
 runTcpConnSupplier ::
@@ -106,7 +97,7 @@ runTcpConnSupplier
           )
       return
         ( ServerHandle
-            { kill = Net.close socket,
+            { kill = Net.gracefulClose socket 30,
               threadId = tid
             }
         )

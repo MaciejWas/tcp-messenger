@@ -13,6 +13,7 @@
 
 module TcpMsg.Client.Tcp where
 
+import qualified Control.Monad.Catch as Err
 import Effectful
   ( Eff,
     IOE,
@@ -22,10 +23,14 @@ import Effectful
 import Effectful.Concurrent (Concurrent)
 import Effectful.Concurrent.STM (newTVarIO)
 import qualified Network.Socket as Net
-  ( HostName,
+  ( AddrInfo (addrAddress),
+    HostName,
     PortNumber,
     Socket,
-    gracefulClose, openSocket, AddrInfo (addrAddress), connect,
+    close,
+    connect,
+    gracefulClose,
+    openSocket,
   )
 import qualified Network.Socket.ByteString as Net
 import TcpMsg.Effects.Connection (Conn, ConnectionHandle (ConnectionHandle), ConnectionInfo (ConnectionInfo), mkConnectionActions, runConnection)

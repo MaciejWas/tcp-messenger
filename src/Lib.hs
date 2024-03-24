@@ -7,7 +7,7 @@
 {-# LANGUAGE TypeOperators #-}
 
 module Lib
-  (
+  ( run, runClient
   )
 where
 

@@ -29,6 +29,7 @@ dependencies:
 - cereal == 0.5.8.3
 - text == 2.0.2
 - stm == 2.5.1.0
+- exceptions == 0.10.5
 - stm-containers
 
 ghc-options:

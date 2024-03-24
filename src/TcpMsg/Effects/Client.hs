@@ -15,7 +15,7 @@ import Control.Concurrent (ThreadId)
 -- import qualified Data.HashTable.IO as H (BasicHashTable, insert, lookup, new)
 
 import qualified Control.Concurrent.STM as STM
-import Control.Monad (forever)
+import qualified Data.ByteString.Lazy as LBS
 import Data.Serialize (Serialize)
 import qualified Data.Text as T
 import Data.UnixTime (getUnixTime)
@@ -38,14 +38,16 @@ import Effectful.Dispatch.Static
     unsafeEff_,
   )
 import qualified StmContainers.Map as M
-import TcpMsg.Data (Header (Header), UnixMsgTime, fromUnix, Message)
+import TcpMsg.Data (Header (Header), Message, UnixMsgTime, fromUnix)
 import TcpMsg.Effects.Connection (Conn, sendMessage)
 import TcpMsg.Parsing (parseMsg)
-import qualified Data.ByteString.Lazy as LBS
 
 ----------------------------------------------------------------------------------------------------------
 
-type MessageMap response = M.Map UnixMsgTime (STM.TMVar (Message response))
+type MessageMap response =
+  M.Map
+    UnixMsgTime
+    (STM.TMVar (Message response))
 
 data ClientState a b = ClientState
   { clientName :: T.Text,
@@ -104,9 +106,7 @@ ask ::
   ) =>
   Message a ->
   Eff es (Async (Message b))
-ask msg = do
-  msgTime <- sendRequest
-  async (blockingWaitForResponse @a @b msgTime)
+ask msg = sendRequest >>= (async . blockingWaitForResponse @a @b)
   where
     sendRequest :: Eff es UnixMsgTime
     sendRequest = do

@@ -27,10 +27,10 @@ parseMsg = do
   return (header, Message payload trunk)
 
 parseHeader :: forall connState es. (Conn connState :> es) => Eff es Header
-parseHeader = bufferAndParse @connState headersize
+parseHeader = parse @connState headersize
 
 parsePayload :: forall connState message es. (Conn connState :> es, Serialize message) => Header -> Eff es message
-parsePayload (Header _ msgSize _) = bufferAndParse @connState msgSize
+parsePayload (Header _ msgSize _) = parse @connState msgSize
 
 parseTrunk :: forall connState es. (Conn connState :> es) => Header -> Eff es (Maybe LBS.LazyByteString)
 parseTrunk (Header _ _ trunkSize) = case trunkSize of
@@ -39,8 +39,8 @@ parseTrunk (Header _ _ trunkSize) = case trunkSize of
     buf <- buffer @connState mempty (fromIntegral trunkSize)
     return (if BS.null buf then Nothing else Just (LBS.fromStrict buf))
 
-bufferAndParse :: forall connState a es. (Conn connState :> es, Serialize a) => Int -> Eff es a
-bufferAndParse n = do
+parse :: forall connState a es. (Conn connState :> es, Serialize a) => Int -> Eff es a
+parse n = do
   buf <- buffer @connState (mempty :: LazyByteString) n
   case decode buf of
     Right val -> return val
