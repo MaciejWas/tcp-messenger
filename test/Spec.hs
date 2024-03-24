@@ -44,11 +44,12 @@ import Network.Socket (Socket)
 import Effectful.Concurrent.Async (wait)
 
 import TcpMsg.Parsing (parseMsg, parseHeader)
+import TcpMsg.Effects.Client (ask)
 
 import TcpMsg.Server.Abstract (runServer)
 import TcpMsg.Server.Tcp (runTcpConnSupplier, defaultServerOpts, ServerOpts(ServerOpts), ServerHandle (ServerHandle, kill), ServerOpts (port))
 
-import TcpMsg.Client.Abstract (runClient, ask)
+import TcpMsg.Client.Abstract (runClient)
 import TcpMsg.Client.Tcp (ClientOpts (ClientOpts, serverHost, serverPort), runTcpConnection)
 
 import TcpMsg.Effects.Connection
@@ -63,7 +64,7 @@ import TcpMsg.Effects.Connection
       writeBytes )
 import TcpMsg.Effects.Supplier (nextConnection, eachConnectionDo)
 
-import TcpMsg.Data (mkMsg, Header (Header), UnixMsgTime)
+import TcpMsg.Data (encodeMsg, Header (Header), UnixMsgTime, Message(Message))
 
 data MockConnStream
   = MockConnStream
@@ -103,11 +104,11 @@ testConnActions connHandleRef = do
 inConnectionContext ::
   forall a x.
   (Serialize a) =>
-  [(UnixMsgTime, a)] ->
+  [(UnixMsgTime, Message a)] ->
   Eff '[Conn MockConnStream, Concurrent, IOE] x ->
   IO x
 inConnectionContext messages action =
-  let inputStream = foldl (<>) mempty (map (uncurry mkMsg) messages)
+  let inputStream = foldl (<>) mempty (map (uncurry encodeMsg) messages)
       testHandle = testConnHandle inputStream
   in runEff (runConcurrent (do
     testHandleRef <- newTVarIO testHandle
@@ -125,7 +126,11 @@ data SomeData = SomeData {
 
 instance Serialize SomeData
 
-mkSomeData (i :: Int) = SomeData { foo = show (i * 100), bar = [i..(i+30)], baz = False}
+mkSomeData :: Int -> Message SomeData
+mkSomeData i
+ = Message
+    SomeData { foo = show (i * 100), bar = [i..(i+30)], baz = False}
+    Nothing
 
 --------------------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -138,12 +143,12 @@ main = hspec $ do
     describe "Client" $ do
       it "can send a single message to a server" $ do
         responseReceived <- newEmptyMVar
-        let request = 42
+        let request = (Message 42 Nothing)
 
         -- Start a server which responds with x + 1
         let srvopts = ServerOpts { port = 4455 }
         (ServerHandle { kill }) <- runTcpConnSupplier' srvopts (do
-          runServer @Int @Int @Socket (\x -> return (x + 1))
+          runServer @Int @Int @Socket (\(Message x t) -> return (Message (x + 1) t))
           )
 
         -- Start a client which sends a single request
@@ -155,7 +160,7 @@ main = hspec $ do
           ))
 
         responseReceivedVal <- takeMVar responseReceived
-        responseReceivedVal `shouldBe` (request + 1)
+        responseReceivedVal `shouldBe` (Message 43 Nothing)
 
         kill
 
@@ -163,7 +168,7 @@ main = hspec $ do
         responsesReceived <- newEmptyMVar
 
         let requests = map mkSomeData [1..200]
-        let processRequest = \x -> x{baz=True}
+        let processRequest (Message x t) = Message x{baz=True} t
 
         -- Start a server which modifies the data
         let srvopts = ServerOpts { port = 4455 }
@@ -254,19 +259,19 @@ main = hspec $ do
         kill2
 
     describe "Data" $ do
-      describe "mkMsg" $ do
+      describe "encodeMsg" $ do
         it "creates a message which contains the payload" $ do
-          property $ \(messageId :: UnixMsgTime) (payload :: BS.ByteString) -> BS.isInfixOf payload (mkMsg messageId payload)
+          property $ \(messageId :: UnixMsgTime) (payload :: BS.ByteString) -> BS.isInfixOf payload (encodeMsg messageId (Message payload Nothing))
 
     describe "ParsingBuffers" $ do
       describe "parseMsg" $ do
         it "parses a header" $ do
           property $ \(messageId :: UnixMsgTime) (payload :: BS.ByteString)  -> monadicIO $ do
-            (Header responseMsgId _) <- run (inConnectionContext [(messageId, payload)] (parseHeader @MockConnStream))
+            (Header responseMsgId _ _) <- run (inConnectionContext [(messageId, Message payload Nothing)] (parseHeader @MockConnStream))
             assert (responseMsgId == messageId)
 
         it "parses a message" $ do
           property $ \(messageId :: UnixMsgTime) (payload :: BS.ByteString)  -> monadicIO $ do
-            (Header responseMsgId _, response) <- run (inConnectionContext [(messageId, payload)] (parseMsg @MockConnStream @BS.ByteString))
+            (Header responseMsgId _ _, Message response _) <- run (inConnectionContext [(messageId, Message payload Nothing)] (parseMsg @MockConnStream @BS.ByteString))
             assert (response == payload)
             assert (responseMsgId == messageId)

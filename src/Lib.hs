@@ -21,10 +21,11 @@ import TcpMsg.Effects.Client (Client)
 import TcpMsg.Effects.Connection (Conn)
 import TcpMsg.Server.Abstract (runServer)
 import TcpMsg.Server.Tcp (ServerOpts, ServerHandle, defaultServerOpts, runTcpConnSupplier)
+import TcpMsg.Data (Message)
 
 data ServerSettings a b es = ServerSettings
   { tcpOpts :: ServerOpts,
-    action :: a -> IO b
+    action :: Message a -> IO (Message b)
   }
 
 defaultServerSettings :: ServerSettings a a es

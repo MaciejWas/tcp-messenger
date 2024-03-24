@@ -26,7 +26,7 @@ import Effectful.Dispatch.Static
   ( evalStaticRep,
   )
 import qualified StmContainers.Map as M
-import TcpMsg.Data (Header (Header))
+import TcpMsg.Data (Header (Header), Message)
 import TcpMsg.Effects.Connection (Conn)
 import TcpMsg.Parsing (parseMsg)
 import TcpMsg.Effects.Client (Client, MessageMap, StaticRep (Client), ClientState (ClientState))
@@ -35,10 +35,9 @@ notifyMessage ::
   forall b es.
   (Concurrent :> es) =>
   STM.TVar (MessageMap b) ->
-  Header ->
-  b ->
+  (Header, Message b) ->
   Eff es ()
-notifyMessage msgs (Header msgTime _ _) response =
+notifyMessage msgs (Header msgTime _ _, newMsg) =
   atomically
     ( do
         msgs_ <- STM.readTVar msgs
@@ -46,10 +45,10 @@ notifyMessage msgs (Header msgTime _ _) response =
         case currVar of
           Nothing ->
             ( do
-                responseMVar <- STM.newTMVar response
+                responseMVar <- STM.newTMVar newMsg
                 M.insert responseMVar msgTime msgs_ 
             )
-          Just mvar -> STM.putTMVar mvar response
+          Just mvar -> STM.putTMVar mvar newMsg
     )
 
 startWorker ::
@@ -65,7 +64,7 @@ startWorker msgs =
     (readNextMessage >>= notifyMessageReceived)
   where
     readNextMessage = parseMsg @c @b
-    notifyMessageReceived = uncurry (notifyMessage msgs)
+    notifyMessageReceived = notifyMessage msgs
 
 runClient ::
   forall a b c es.

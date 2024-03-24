@@ -8,13 +8,13 @@
 
 module TcpMsg.Server.Abstract where
 
-import Control.Monad (void)
+import Control.Monad (void, forever)
 import Data.Serialize (Serialize)
 import Effectful (Eff, IOE, (:>))
 import Effectful.Concurrent (Concurrent, forkIO)
 import TcpMsg.Effects.Connection (Conn, readBytes, sendMessage)
 import TcpMsg.Effects.Supplier ( eachConnectionDo, ConnSupplier )
-import TcpMsg.Data (Header (Header), headersize)
+import TcpMsg.Data (Header (Header), headersize, Message)
 import TcpMsg.Parsing (parseMsg)
 import Effectful.Dispatch.Static (unsafeEff_)
 
@@ -24,12 +24,12 @@ eachRequestDo ::
     Serialize a,
     Serialize b
   ) =>
-  (a -> IO (Message b)) ->
+  (Message a -> IO (Message b)) ->
   Eff (Conn connState ': es) ()
-eachRequestDo respond = do
-  (Header messageId _ _, ) <- parseMsg @connState
-  inParallel (unsafeEff_ (respond request) >>= sendMessage @connState messageId)
-  eachRequestDo @connState @es @a @b respond
+eachRequestDo respond = forever (do
+    (Header messageId _ _, msg) <- parseMsg @connState
+    inParallel (unsafeEff_ (respond msg) >>= sendMessage @connState messageId)
+  )
 
 ----------------------------------------------------------------------------------------------------------
 
@@ -41,7 +41,7 @@ runServer ::
     Serialize a,
     Serialize b
   ) =>
-  (a -> IO b) ->
+  (Message a -> IO (Message b)) ->
   Eff es ()
 runServer respond =
   let respondToRequests = eachRequestDo @connState @es @a @b respond

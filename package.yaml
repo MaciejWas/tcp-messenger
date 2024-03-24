@@ -30,7 +30,6 @@ dependencies:
 - text == 2.0.2
 - stm == 2.5.1.0
 - stm-containers
-- aeson
 
 ghc-options:
 - -Wall

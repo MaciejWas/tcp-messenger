@@ -56,7 +56,7 @@ instance Serialize Header
 data Message a = Message
   { msgPayload :: a,
     msgTrunk :: Maybe LBS.LazyByteString
-  }
+  } deriving (Show, Eq)
 
 ----------------------------------------------------------------------------------------------------------
 

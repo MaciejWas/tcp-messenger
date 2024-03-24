@@ -44,8 +44,7 @@ library
       src
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -fno-full-laziness
   build-depends:
-      aeson
-    , base >=4.7 && <5
+      base >=4.7 && <5
     , bytestring ==0.11.5.3
     , cereal ==0.5.8.3
     , effectful ==2.2.2.0
@@ -67,8 +66,7 @@ executable tcp-messenger-exe
       app
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -fno-full-laziness -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-      aeson
-    , base >=4.7 && <5
+      base >=4.7 && <5
     , bytestring ==0.11.5.3
     , cereal ==0.5.8.3
     , effectful ==2.2.2.0
@@ -93,7 +91,6 @@ test-suite tcp-messenger-test
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -fno-full-laziness -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       QuickCheck ==2.14.3
-    , aeson
     , base >=4.7 && <5
     , bytestring ==0.11.5.3
     , cereal ==0.5.8.3
