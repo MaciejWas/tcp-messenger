@@ -9,10 +9,9 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 
-module TcpMsg.Effects.Logger where
+module TcpMsg.Effects.Logger (Logger, LoggerActions, logInfo, logDebug, noopLogger, stdLogger, runLogger) where
 
 import Control.Concurrent (ThreadId)
--- import qualified Data.HashTable.IO as H (BasicHashTable, insert, lookup, new)
 
 import qualified Control.Concurrent.STM as STM
 import Control.Monad (forever)
@@ -70,4 +69,13 @@ logDebug :: forall es. (Logger :> es) => BS.ByteString -> Eff es ()
 logDebug msg = do
   (Logger (LoggerActions{debug})) <- (getStaticRep :: Eff es (StaticRep Logger))
   unsafeEff_ (debug msg)
+
+runLogger :: forall es a. (IOE :> es) => LoggerActions -> (Eff (Logger ': es) a) -> Eff es a
+runLogger actions = evalStaticRep (Logger actions)
+
+noopLogger :: LoggerActions
+noopLogger = LoggerActions (\a -> return ()) (\a -> return ())
+
+stdLogger :: LoggerActions
+stdLogger = LoggerActions (\a -> return ()) (\a -> return ())
   

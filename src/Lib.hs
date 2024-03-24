@@ -19,20 +19,23 @@ import qualified TcpMsg.Client.Abstract as C (runClient)
 import TcpMsg.Client.Tcp (ClientOpts, runTcpConnection)
 import TcpMsg.Effects.Client (Client)
 import TcpMsg.Effects.Connection (Conn)
+import TcpMsg.Effects.Logger (LoggerActions, Logger, runLogger, noopLogger)
 import TcpMsg.Server.Abstract (runServer)
 import TcpMsg.Server.Tcp (ServerOpts, ServerHandle, defaultServerOpts, runTcpConnSupplier)
 import TcpMsg.Data (Message)
 
 data ServerSettings a b es = ServerSettings
   { tcpOpts :: ServerOpts,
-    action :: Message a -> IO (Message b)
+    action :: Message a -> IO (Message b),
+    logger :: LoggerActions
   }
 
 defaultServerSettings :: ServerSettings a a es
 defaultServerSettings =
   ServerSettings
     { tcpOpts = defaultServerOpts,
-      action = return
+      action = return,
+      logger = noopLogger
     }
 
 run ::
@@ -42,7 +45,7 @@ run ::
   ) =>
   ServerSettings a b es ->
   IO ServerHandle
-run (ServerSettings {tcpOpts, action}) = runEff (runConcurrent (runTcpConnSupplier tcpOpts (runServer @a @b @Socket action)))
+run (ServerSettings {tcpOpts, action, logger}) = runEff (runConcurrent (runLogger logger (runTcpConnSupplier tcpOpts (runServer @a @b @Socket action))))
 
 runClient ::
   forall a b es.

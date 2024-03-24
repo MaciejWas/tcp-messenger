@@ -86,6 +86,9 @@ test-suite tcp-messenger-test
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   other-modules:
+      ClientSpec
+      ParserSpec
+      ServerSpec
       Paths_tcp_messenger
   autogen-modules:
       Paths_tcp_messenger

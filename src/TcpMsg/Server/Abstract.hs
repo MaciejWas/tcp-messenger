@@ -12,6 +12,7 @@ import Control.Monad (void, forever)
 import Data.Serialize (Serialize)
 import Effectful (Eff, IOE, (:>))
 import Effectful.Concurrent (Concurrent, forkIO)
+import TcpMsg.Effects.Logger (Logger)
 import TcpMsg.Effects.Connection (Conn, readBytes, sendMessage)
 import TcpMsg.Effects.Supplier ( eachConnectionDo, ConnSupplier )
 import TcpMsg.Data (Header (Header), headersize, Message)
@@ -38,6 +39,7 @@ runServer ::
   ( IOE :> es,
     Concurrent :> es,
     ConnSupplier connState :> es,
+    Logger :> es,
     Serialize a,
     Serialize b
   ) =>

@@ -3,6 +3,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
@@ -24,7 +25,8 @@ import Effectful.Dispatch.Static
     StaticRep, getStaticRep, unsafeEff_, evalStaticRep,
   )
 import TcpMsg.Effects.Connection (Conn, ConnectionActions, runConnection)
-import Effectful.Concurrent (Concurrent, forkFinally)
+import TcpMsg.Effects.Logger (logInfo, Logger)
+import Effectful.Concurrent (Concurrent, forkIO)
 
 ----------------------------------------------------------------------------------------------------------
 
@@ -40,10 +42,12 @@ data ConnSupplierActions c
   = ConnSupplierActions
       (IO (ConnectionActions c))
 
-nextConnection :: forall c es. ( ConnSupplier c :> es) => Eff es (ConnectionActions c)
+nextConnection :: forall c es. (Logger :> es, ConnSupplier c :> es) => Eff es (ConnectionActions c)
 nextConnection = do
   (ConnSupplier (ConnSupplierActions nextConnection' )) <- (getStaticRep :: Eff es (StaticRep (ConnSupplier c)))
-  unsafeEff_ nextConnection'
+  nextConn <- unsafeEff_ nextConnection'
+  logInfo "New connection established!"
+  return nextConn
 
 runConnSupplier :: forall c es a. (IOE :> es ) => ConnSupplierActions c -> Eff (ConnSupplier c ': es) a -> Eff es a
 runConnSupplier connectionActions = evalStaticRep (ConnSupplier connectionActions)
@@ -54,11 +58,12 @@ eachConnectionDo ::
   forall c es.
   ( IOE :> es,
     ConnSupplier c :> es,
-    Concurrent :> es
+    Concurrent :> es,
+    Logger :> es
   ) =>
   Eff (Conn c ': es) () ->
   Eff es ()
 eachConnectionDo action = do
   connHandle <- nextConnection
-  _ <- forkFinally (runConnection connHandle action) (\e -> return ())
+  _ <- forkIO (runConnection connHandle action)
   eachConnectionDo action
