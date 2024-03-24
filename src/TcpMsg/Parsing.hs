@@ -11,23 +11,32 @@ module TcpMsg.Parsing where
 import Control.Monad (void)
 import qualified Data.ByteString as BS
 import Data.ByteString.Lazy (LazyByteString, toStrict)
+import qualified Data.ByteString.Lazy as LBS
 import Data.Serialize (Serialize, decode)
 import Effectful (Eff, IOE, (:>))
 import Effectful.Concurrent (Concurrent, forkIO)
+import TcpMsg.Data (Header (Header), Message (Message), headersize)
 import TcpMsg.Effects.Connection (Conn, readBytes)
-import TcpMsg.Data (Header (Header), headersize)
 
-parseMsg :: forall connState message es. (Conn connState :> es, Serialize message) => Eff es (Header, message)
+parseMsg :: forall connState a es. (Conn connState :> es, Serialize a) => Eff es (Header, Message a)
 parseMsg = do
   header <- parseHeader @connState
   payload <- parsePayload @connState header
-  return (header, payload)
+  trunk <- parseTrunk @connState header
+  return (header, Message payload trunk)
 
 parseHeader :: forall connState es. (Conn connState :> es) => Eff es Header
 parseHeader = newBuffer @connState headersize
 
 parsePayload :: forall connState message es. (Conn connState :> es, Serialize message) => Header -> Eff es message
-parsePayload (Header msgId msgSize) = newBuffer @connState msgSize
+parsePayload (Header _ msgSize _) = newBuffer @connState msgSize
+
+parseTrunk :: forall connState es. (Conn connState :> es) => Header -> Eff es (Maybe LBS.LazyByteString)
+parseTrunk (Header _ _ trunkSize) = case trunkSize of
+  0 -> return Nothing
+  _ -> do
+    buf <- newBuffer @connState (fromIntegral trunkSize)
+    return (if BS.null buf then Nothing else Just (LBS.fromStrict buf))
 
 newBuffer :: forall connState message es. (Conn connState :> es, Serialize message) => Int -> Eff es message
 newBuffer = buffer @connState (mempty :: LazyByteString)

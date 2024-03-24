@@ -41,6 +41,7 @@ import qualified StmContainers.Map as M
 import TcpMsg.Data (Header (Header), UnixMsgTime, fromUnix)
 import TcpMsg.Effects.Connection (Conn, sendMessage)
 import TcpMsg.Parsing (parseMsg)
+import qualified Data.ByteString.Lazy as LBS
 
 ----------------------------------------------------------------------------------------------------------
 
@@ -52,7 +53,8 @@ data ClientState a b = ClientState
     worker :: ThreadId
   }
 
--- | Effect definition
+----------------------------------------------------------------------------------------------------------
+
 data Client a b :: Effect
 
 type instance DispatchOf (Client a b) = Static WithSideEffects
@@ -70,3 +72,45 @@ pendingMessages = do
   (Client (ClientState {msgs})) <- (getStaticRep :: Eff es (StaticRep (Client a b)))
   return msgs
 
+blockingWaitForResponse :: forall a b es. (Concurrent :> es, Client a b :> es) => UnixMsgTime -> Eff es b
+blockingWaitForResponse unixTime = do
+  msgs <- pendingMessages @a
+  atomically
+    ( do
+        msgs_ <- STM.readTVar msgs
+        response <- M.lookup unixTime msgs_
+        case response of
+          Just r -> M.delete unixTime msgs_ >> STM.takeTMVar r
+          Nothing -> initMessage msgs_ unixTime >>= STM.takeTMVar
+    )
+  where
+    -- Create a new MVar which will contain the response
+    initMessage ::
+      MessageMap b ->
+      UnixMsgTime ->
+      STM.STM (STM.TMVar b)
+    initMessage msgs msgTime =
+      do
+        v <- STM.newEmptyTMVar
+        M.insert v msgTime msgs
+        return v
+
+ask ::
+  forall a b c es.
+  ( Client a b :> es,
+    Concurrent :> es,
+    Conn c :> es,
+    Serialize a
+  ) =>
+  a ->
+  Maybe LBS.LazyByteString ->
+  Eff es (Async b)
+ask payload trunk = do
+  msgTime <- sendRequest
+  async (blockingWaitForResponse @a @b msgTime)
+  where
+    sendRequest :: Eff es UnixMsgTime
+    sendRequest = do
+      msgId <- newMessageId @a @b
+      sendMessage @c msgId payload trunk
+      return msgId

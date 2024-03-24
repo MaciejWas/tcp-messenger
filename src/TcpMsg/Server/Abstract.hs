@@ -24,10 +24,10 @@ eachRequestDo ::
     Serialize a,
     Serialize b
   ) =>
-  (a -> IO b) ->
+  (a -> IO (Message b)) ->
   Eff (Conn connState ': es) ()
 eachRequestDo respond = do
-  (Header messageId _, request) <- parseMsg @connState
+  (Header messageId _ _, ) <- parseMsg @connState
   inParallel (unsafeEff_ (respond request) >>= sendMessage @connState messageId)
   eachRequestDo @connState @es @a @b respond
 

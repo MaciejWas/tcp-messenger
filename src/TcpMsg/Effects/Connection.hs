@@ -34,8 +34,9 @@ import Effectful.Dispatch.Static
     getStaticRep,
     unsafeEff_,
   )
-import TcpMsg.Data (ClientId, mkMsg, UnixMsgTime)
+import TcpMsg.Data (ClientId, encodeMsg, UnixMsgTime, Message)
 import Data.UnixTime (UnixTime)
+import qualified Data.ByteString.Lazy as LBS
 
 ----------------------------------------------------------------------------------------------------------
 
@@ -125,14 +126,12 @@ sendMessage ::
     Serialize a
   ) =>
   UnixMsgTime ->
-  a ->
+  Message a ->
   Eff es ()
-sendMessage messageId obj = writeBytes @c (mkMsg messageId obj)
+sendMessage messageId message = writeBytes @c (encodeMsg messageId message)
 
 runConnection :: forall c a es. (IOE :> es) => ConnectionActions c -> Eff (Conn c ': es) a -> Eff es a
 runConnection connectionActions = evalStaticRep (Conn connectionActions)
-
-----------------------------------------------------------------------------------------------------------
 
 ----------------------------------------------------------------------------------------------------------
 -- Various helpers
