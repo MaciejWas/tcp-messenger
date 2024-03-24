@@ -17,6 +17,7 @@ import Effectful (Eff, IOE, (:>))
 import Effectful.Concurrent (Concurrent, forkIO)
 import TcpMsg.Data (Header (Header), Message (Message), headersize)
 import TcpMsg.Effects.Connection (Conn, readBytes)
+import Effectful.Dispatch.Static (unsafeEff_)
 
 parseMsg :: forall connState a es. (Conn connState :> es, Serialize a) => Eff es (Header, Message a)
 parseMsg = do
@@ -26,30 +27,31 @@ parseMsg = do
   return (header, Message payload trunk)
 
 parseHeader :: forall connState es. (Conn connState :> es) => Eff es Header
-parseHeader = newBuffer @connState headersize
+parseHeader = bufferAndParse @connState headersize
 
 parsePayload :: forall connState message es. (Conn connState :> es, Serialize message) => Header -> Eff es message
-parsePayload (Header _ msgSize _) = newBuffer @connState msgSize
+parsePayload (Header _ msgSize _) = bufferAndParse @connState msgSize
 
 parseTrunk :: forall connState es. (Conn connState :> es) => Header -> Eff es (Maybe LBS.LazyByteString)
 parseTrunk (Header _ _ trunkSize) = case trunkSize of
   0 -> return Nothing
   _ -> do
-    buf <- newBuffer @connState (fromIntegral trunkSize)
+    buf <- buffer @connState mempty (fromIntegral trunkSize)
     return (if BS.null buf then Nothing else Just (LBS.fromStrict buf))
 
-newBuffer :: forall connState message es. (Conn connState :> es, Serialize message) => Int -> Eff es message
-newBuffer = buffer @connState (mempty :: LazyByteString)
+bufferAndParse :: forall connState a es. (Conn connState :> es, Serialize a) => Int -> Eff es a
+bufferAndParse n = do
+  buf <- buffer @connState (mempty :: LazyByteString) n
+  case decode buf of
+    Right val -> return val
+    Left e -> error e
 
-buffer :: forall connState message es. (Conn connState :> es, Serialize message) => LazyByteString -> Int -> Eff es message
+buffer :: forall connState es. (Conn connState :> es) => LazyByteString -> Int -> Eff es BS.ByteString
 buffer currBuffer remainingBytes = do
   newBytes <- readBytes @connState remainingBytes
   let bytesInLastMessage = BS.length newBytes
-  if bytesInLastMessage >= remainingBytes
-    then
-      let totalMessage = toStrict currBuffer <> newBytes
-          Right decoded = decode totalMessage
-       in return decoded
+  if bytesInLastMessage == remainingBytes
+    then return (toStrict currBuffer <> newBytes)
     else
       let updatedBuffer = currBuffer <> BS.fromStrict newBytes
           updatedRemaining = remainingBytes - bytesInLastMessage

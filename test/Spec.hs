@@ -141,6 +141,54 @@ main :: IO ()
 main = hspec $ do
   describe "TcpMsg" $ do
     describe "Client" $ do
+      it "can send a bytestring trunk" $ do
+        responseReceived <- newEmptyMVar
+        let trunkData = "fasdfsdafasdf asdf asd fasd fdas fas fsdalllf"
+        let request = (Message 42 (Just trunkData))
+
+        -- Start a server which responds with x + 1
+        let srvopts = ServerOpts { port = 4455 }
+        (ServerHandle { kill }) <- runTcpConnSupplier' srvopts (do
+          runServer @Int @Bool @Socket (\(Message x t) -> return (Message (t == Just trunkData) t))
+          )
+
+        -- Start a client which sends a single request
+        let clientopts = ClientOpts { serverHost = "localhost", serverPort = 4455  }
+        runTcpConnection' clientopts (runClient @Int @Bool @Socket (do
+          response <- ask @Int @Bool @Socket request >>= wait
+          liftIO (putMVar responseReceived response)
+          return ()
+          ))
+
+        responseReceivedVal <- takeMVar responseReceived
+        responseReceivedVal `shouldBe` Message True (Just trunkData)
+
+        kill
+
+      it "can receive a bytestring trunk" $ do
+        responseReceived <- newEmptyMVar
+        let trunkData = "fasdfsdafasdf asdf asd fasd fdas fas fsdalllf"
+        let request = (Message 42 (Nothing))
+
+        -- Start a server which responds with x + 1
+        let srvopts = ServerOpts { port = 4455 }
+        (ServerHandle { kill }) <- runTcpConnSupplier' srvopts (do
+          runServer @Int @Bool @Socket (\(Message x t) -> return (Message True (Just trunkData)))
+          )
+
+        -- Start a client which sends a single request
+        let clientopts = ClientOpts { serverHost = "localhost", serverPort = 4455  }
+        runTcpConnection' clientopts (runClient @Int @Bool @Socket (do
+          response <- ask @Int @Bool @Socket request >>= wait
+          liftIO (putMVar responseReceived response)
+          return ()
+          ))
+
+        responseReceivedVal <- takeMVar responseReceived
+        responseReceivedVal `shouldBe` Message True (Just trunkData)
+
+        kill
+
       it "can send a single message to a server" $ do
         responseReceived <- newEmptyMVar
         let request = (Message 42 Nothing)
