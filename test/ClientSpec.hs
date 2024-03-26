@@ -119,74 +119,74 @@ clientSpec = do
         kill
 
 
-      -- it "can receive a bytestring trunk" $ do
-      --   responseReceived <- newEmptyMVar
-      --   let trunkData = "fasdfsdafasdf asdf asd fasd fdas fas fsdalllf"
-      --   let request = (Message 42 (Nothing))
+      it "can receive a bytestring trunk" $ do
+        responseReceived <- newEmptyMVar
+        let trunkData = "fasdfsdafasdf asdf asd fasd fdas fas fsdalllf"
+        let request = (Message 42 (Nothing))
 
-      --   -- Start a server which responds with x + 1
-      --   let srvopts = ServerOpts { port = 4455 }
-      --   (ServerHandle { kill }) <- runTcpConnSupplier' srvopts (do
-      --     runServer @Int @Bool @Socket (\(Message x t) -> return (Message True (Just trunkData)))
-      --     )
+        -- Start a server which responds with x + 1
+        let srvopts = ServerOpts { port = 4455 }
+        (ServerHandle { kill }) <- runTcpConnSupplier' srvopts (do
+          runServer @Int @Bool @Socket (\(Message x t) -> return (Message True (Just trunkData)))
+          )
 
-      --   -- Start a client which sends a single request
-      --   let clientopts = ClientOpts { serverHost = "localhost", serverPort = 4455  }
-      --   runTcpConnection' clientopts (runClient @Int @Bool @Socket (do
-      --     response <- ask @Int @Bool @Socket request >>= wait
-      --     liftIO (putMVar responseReceived response)
-      --     return ()
-      --     ))
+        -- Start a client which sends a single request
+        let clientopts = ClientOpts { serverHost = "localhost", serverPort = 4455  }
+        runTcpConnection' clientopts (runClient @Int @Bool @Socket (do
+          response <- ask @Int @Bool @Socket request >>= wait
+          liftIO (putMVar responseReceived response)
+          return ()
+          ))
 
-      --   responseReceivedVal <- takeMVar responseReceived
-      --   responseReceivedVal `shouldBe` Message True (Just trunkData)
+        responseReceivedVal <- takeMVar responseReceived
+        responseReceivedVal `shouldBe` Message True (Just trunkData)
 
-      --   kill
+        kill
 
-      -- it "can send a single message to a server" $ do
-      --   responseReceived <- newEmptyMVar
-      --   let request = (Message 42 Nothing)
+      it "can send a single message to a server" $ do
+        responseReceived <- newEmptyMVar
+        let request = (Message 42 Nothing)
 
-      --   -- Start a server which responds with x + 1
-      --   let srvopts = ServerOpts { port = 4455 }
-      --   (ServerHandle { kill }) <- runTcpConnSupplier' srvopts (do
-      --     runServer @Int @Int @Socket (\(Message x t) -> return (Message (x + 1) t))
-      --     )
+        -- Start a server which responds with x + 1
+        let srvopts = ServerOpts { port = 4455 }
+        (ServerHandle { kill }) <- runTcpConnSupplier' srvopts (do
+          runServer @Int @Int @Socket (\(Message x t) -> return (Message (x + 1) t))
+          )
 
-      --   -- Start a client which sends a single request
-      --   let clientopts = ClientOpts { serverHost = "localhost", serverPort = 4455  }
-      --   runTcpConnection' clientopts (runClient @Int @Int @Socket (do
-      --     response <- ask @Int @Int @Socket request >>= wait
-      --     liftIO (putMVar responseReceived response)
-      --     return ()
-      --     ))
+        -- Start a client which sends a single request
+        let clientopts = ClientOpts { serverHost = "localhost", serverPort = 4455  }
+        runTcpConnection' clientopts (runClient @Int @Int @Socket (do
+          response <- ask @Int @Int @Socket request >>= wait
+          liftIO (putMVar responseReceived response)
+          return ()
+          ))
 
-      --   responseReceivedVal <- takeMVar responseReceived
-      --   responseReceivedVal `shouldBe` (Message 43 Nothing)
+        responseReceivedVal <- takeMVar responseReceived
+        responseReceivedVal `shouldBe` (Message 43 Nothing)
 
-      --   kill
+        kill
 
-      -- it "can send a multiple messages to a server" $ do
-      --   responsesReceived <- newEmptyMVar
+      it "can send a multiple messages to a server" $ do
+        responsesReceived <- newEmptyMVar
 
-      --   let requests = map mkSomeData [1..200]
-      --   let processRequest (Message x t) = Message x{baz=True} t
+        let requests = map mkSomeData [1..200]
+        let processRequest (Message x t) = Message x{baz=True} t
 
-      --   -- Start a server which modifies the data
-      --   let srvopts = ServerOpts { port = 4455 }
-      --   (ServerHandle { kill }) <- runTcpConnSupplier' srvopts (do
-      --     runServer @SomeData @SomeData @Socket (return . processRequest)
-      --     )
+        -- Start a server which modifies the data
+        let srvopts = ServerOpts { port = 4455 }
+        (ServerHandle { kill }) <- runTcpConnSupplier' srvopts (do
+          runServer @SomeData @SomeData @Socket (return . processRequest)
+          )
 
-      --   -- Start a client which sends a single request
-      --   let clientopts = ClientOpts { serverHost = "localhost", serverPort = 4455  }
-      --   runTcpConnection' clientopts (runClient @SomeData @SomeData @Socket (do
-      --     futureResponses <- mapM (ask @SomeData @SomeData @Socket) requests
-      --     responses <- mapM wait (reverse futureResponses)
-      --     liftIO (putMVar responsesReceived responses)
-      --     ))
+        -- Start a client which sends a single request
+        let clientopts = ClientOpts { serverHost = "localhost", serverPort = 4455  }
+        runTcpConnection' clientopts (runClient @SomeData @SomeData @Socket (do
+          futureResponses <- mapM (ask @SomeData @SomeData @Socket) requests
+          responses <- mapM wait (reverse futureResponses)
+          liftIO (putMVar responsesReceived responses)
+          ))
 
-      --   responsesReceivedVal <- takeMVar responsesReceived
-      --   responsesReceivedVal `shouldBe` map processRequest (reverse requests)
+        responsesReceivedVal <- takeMVar responsesReceived
+        responsesReceivedVal `shouldBe` map processRequest (reverse requests)
 
-      --   kill
+        kill
