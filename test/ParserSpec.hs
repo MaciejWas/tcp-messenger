@@ -84,7 +84,7 @@ testConnActions ::
   ConnectionHandleRef MockConnStream ->
   Eff es (ConnectionActions MockConnStream)
 testConnActions connHandleRef = do
-  mkConnectionActions connHandleRef mockConnStreamRead mockConnStreamWrite mockConnStreamFinalize
+  mkConnectionActions connHandleRef mockConnStreamRead mockConnStreamWrite
   where
     mockConnStreamWrite :: BS.StrictByteString -> IO ()
     mockConnStreamWrite bytes = runEff (runConcurrent (atomically go))
@@ -101,9 +101,6 @@ testConnActions connHandleRef = do
           let (read, remain) = BS.splitAt size inp
           writeTVar connHandleRef (ConnectionHandle info (MockConnStream remain outp))
           return read
-
-    mockConnStreamFinalize :: IO ()
-    mockConnStreamFinalize = return ()
 
 inConnectionContext ::
   forall a x.

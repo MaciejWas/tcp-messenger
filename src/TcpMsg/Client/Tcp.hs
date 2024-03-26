@@ -72,7 +72,6 @@ runTcpConnection opts operation =
         connRef
         (Net.recv serverSocket)
         (Net.sendAll serverSocket)
-        (Net.gracefulClose serverSocket 500)
 
     runConnection
       connActions

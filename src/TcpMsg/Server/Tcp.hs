@@ -15,7 +15,7 @@ module TcpMsg.Server.Tcp where
 
 import Control.Exception (finally)
 
-import Control.Concurrent (ThreadId)
+import Control.Concurrent (ThreadId, killThread)
 import Effectful
   ( Eff,
     IOE,
@@ -38,6 +38,7 @@ import qualified Network.Socket.ByteString as Net
 import TcpMsg.Effects.Connection (ConnectionActions, ConnectionHandle (ConnectionHandle), ConnectionInfo (ConnectionInfo), mkConnectionActions)
 import TcpMsg.Effects.Supplier (ConnSupplier, ConnSupplierActions (ConnSupplierActions), runConnSupplier)
 import TcpMsg.Network (getAddr, startListening)
+import qualified Control.Exception as E
 
 ----------------------------------------------------------------------------------------------------------
 
@@ -45,13 +46,12 @@ data ServerOpts = ServerOpts
   { port :: Net.PortNumber
   }
 
-spawnServer :: ServerOpts -> IO Net.Socket
-spawnServer (ServerOpts {port}) = do
+createServerSocket :: ServerOpts -> IO Net.Socket
+createServerSocket (ServerOpts {port}) = do
   socketAddress <- getAddr "localhost" port
   socket <- Net.openSocket socketAddress
   startListening socket socketAddress
   return socket
-
 
 ----------------------------------------------------------------------------------------------------------
 
@@ -61,9 +61,8 @@ nextConnection sock = do
   connRef <- newTVarIO (ConnectionHandle (ConnectionInfo "some conn") peerSocket)
   mkConnectionActions
     connRef
-    (Net.recv peerSocket)
+    (\n -> E.onException (Net.recv peerSocket n) (print "ohuj niemoge czytanc"))
     (Net.sendAll peerSocket)
-    (Net.gracefulClose peerSocket 500)
 
 ----------------------------------------------------------------------------------------------------------
 
@@ -86,7 +85,7 @@ runTcpConnSupplier
   opts
   operation =
     do
-      socket <- liftIO (spawnServer opts)
+      socket <- liftIO (createServerSocket opts)
       tid <-
         forkIO
           ( runConnSupplier
@@ -97,7 +96,7 @@ runTcpConnSupplier
           )
       return
         ( ServerHandle
-            { kill = Net.gracefulClose socket 30,
+            { kill = Net.gracefulClose socket 30 >> killThread tid,
               threadId = tid
             }
         )

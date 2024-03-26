@@ -11,7 +11,7 @@
 {-# LANGUAGE TypeOperators #-}
 
 module TcpMsg.Effects.Connection where
-import GHC.Stack (HasCallStack)
+
 import Control.Concurrent (MVar)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
@@ -36,6 +36,7 @@ import Effectful.Dispatch.Static
     getStaticRep,
     unsafeEff_,
   )
+import GHC.Stack (HasCallStack)
 import TcpMsg.Data (ClientId, Message, UnixMsgTime, encodeMsg)
 
 ----------------------------------------------------------------------------------------------------------
@@ -55,17 +56,11 @@ data ConnectionHandle a
       ConnectionInfo
       a -- Some protocol-specific data. E.g. client socket address
 
-instance Functor ConnectionHandle where
-  fmap :: (a -> b) -> ConnectionHandle a -> ConnectionHandle b
-  fmap f (ConnectionHandle inf a) = ConnectionHandle inf (f a)
-
 type ConnectionHandleRef a = TVar (ConnectionHandle a)
 
 type ConnectionRead a = Int -> IO BS.StrictByteString
 
 type ConnectionWrite a = BS.StrictByteString -> IO ()
-
-type ConnectionFinalize a = IO ()
 
 -- All necessary operations to handle a connection
 data ConnectionActions a
@@ -74,7 +69,6 @@ data ConnectionActions a
       (WriterMutex) -- So that only one thread can be writing to a connection on a given time
       (ConnectionRead a) -- Interface for receiving bytes
       (ConnectionWrite a) -- Interface for sending bytes
-      (ConnectionFinalize a)
 
 mkConnectionActions ::
   forall es a.
@@ -82,11 +76,10 @@ mkConnectionActions ::
   ConnectionHandleRef a ->
   ConnectionRead a ->
   ConnectionWrite a ->
-  ConnectionFinalize a ->
   Eff es (ConnectionActions a)
-mkConnectionActions handle connread connwrite connfinalize = do
+mkConnectionActions handle connread connwrite = do
   writerLock <- newMVar ()
-  return (ConnectionActions handle writerLock connread connwrite connfinalize)
+  return (ConnectionActions handle writerLock connread connwrite)
 
 ----------------------------------------------------------------------------------------------------------
 
@@ -101,13 +94,11 @@ newtype instance StaticRep (Conn a) = Conn (ConnectionActions a)
 
 readBytes ::
   forall c es.
-  ( Conn c :> es,
-    HasCallStack
-  ) =>
+  (Conn c :> es) =>
   Int ->
   Eff es BS.StrictByteString
 readBytes n = do
-  (Conn (ConnectionActions _ _ connRead _ _)) <- (getStaticRep :: Eff es (StaticRep (Conn c)))
+  (Conn (ConnectionActions _ _ connRead _)) <- (getStaticRep :: Eff es (StaticRep (Conn c)))
   unsafeEff_ (connRead n)
 
 writeBytes ::
@@ -118,7 +109,7 @@ writeBytes ::
   BS.StrictByteString ->
   Eff es ()
 writeBytes bytes = do
-  (Conn (ConnectionActions _ writerMutex _ connWrite _)) <- (getStaticRep :: Eff es (StaticRep (Conn c)))
+  (Conn (ConnectionActions _ writerMutex _ connWrite)) <- (getStaticRep :: Eff es (StaticRep (Conn c)))
   let doWriteBytes (_lock :: ()) = unsafeEff_ (connWrite bytes)
   withMVar
     writerMutex
