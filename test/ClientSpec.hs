@@ -115,7 +115,9 @@ clientSpec = do
 
         responseReceivedVal <- takeMVar responseReceived
         responseReceivedVal `shouldBe` Message True (Just trunkData)
+      
         kill
+
 
       -- it "can receive a bytestring trunk" $ do
       --   responseReceived <- newEmptyMVar

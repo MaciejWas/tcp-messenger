@@ -61,7 +61,7 @@ nextConnection sock = do
   connRef <- newTVarIO (ConnectionHandle (ConnectionInfo "some conn") peerSocket)
   mkConnectionActions
     connRef
-    (\n -> E.onException (Net.recv peerSocket n) (print "ohuj niemoge czytanc"))
+    (Net.recv peerSocket)
     (Net.sendAll peerSocket)
 
 ----------------------------------------------------------------------------------------------------------
@@ -96,7 +96,7 @@ runTcpConnSupplier
           )
       return
         ( ServerHandle
-            { kill = Net.gracefulClose socket 30 >> killThread tid,
+            { kill = Net.gracefulClose socket 3000 >> killThread tid,
               threadId = tid
             }
         )
