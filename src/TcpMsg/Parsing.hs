@@ -3,56 +3,52 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TypeOperators #-}
+
+
 
 module TcpMsg.Parsing where
 
-import Control.Monad (void)
 import qualified Data.ByteString as BS
 import Data.ByteString.Lazy (LazyByteString, toStrict)
 import qualified Data.ByteString.Lazy as LBS
 import Data.Serialize (Serialize, decode)
-import Effectful (Eff, IOE, (:>))
-import Effectful.Concurrent (Concurrent, forkIO)
 import TcpMsg.Data (Header (Header), Message (Message), headersize)
-import TcpMsg.Effects.Connection (Conn, readBytes)
-import Effectful.Dispatch.Static (unsafeEff_)
+import TcpMsg.Effects.Connection (Connection, readBytes)
 
-parseMsg :: forall connState a es. (Conn connState :> es, Serialize a) => Eff es (Header, Message a)
-parseMsg = do
-  header <- parseHeader @connState
-  payload <- parsePayload @connState header
-  trunk <- parseTrunk @connState header
+parseMsg :: forall c a. Serialize a => Connection c -> IO (Header, Message a)
+parseMsg conn = do
+  header <- parseHeader conn
+  payload <- parsePayload conn header
+  trunk <- parseTrunk conn header
   return (header, Message payload trunk)
 
-parseHeader :: forall connState es. (Conn connState :> es) => Eff es Header
-parseHeader = parse @connState headersize
+parseHeader :: forall c. Connection c -> IO Header
+parseHeader conn = parse conn headersize
 
-parsePayload :: forall connState message es. (Conn connState :> es, Serialize message) => Header -> Eff es message
-parsePayload (Header _ msgSize _) = parse @connState msgSize
+parsePayload :: forall c m. Serialize m => Connection c -> Header -> IO m
+parsePayload c (Header _ msgSize _) = parse c msgSize
 
-parseTrunk :: forall connState es. (Conn connState :> es) => Header -> Eff es (Maybe LBS.LazyByteString)
-parseTrunk (Header _ _ trunkSize) = case trunkSize of
+parseTrunk :: forall c. Connection c -> Header -> IO (Maybe LBS.LazyByteString)
+parseTrunk conn (Header _ _ trunkSize) = case trunkSize of
   0 -> return Nothing
   _ -> do
-    buf <- buffer @connState mempty (fromIntegral trunkSize)
+    buf <- buffer conn mempty (fromIntegral trunkSize)
     return (if BS.null buf then Nothing else Just (LBS.fromStrict buf))
 
-parse :: forall connState a es. (Conn connState :> es, Serialize a) => Int -> Eff es a
-parse n = do
-  buf <- buffer @connState (mempty :: LazyByteString) n
+parse :: forall c a. (Serialize a) => Connection c -> Int -> IO a
+parse conn n = do
+  buf <- buffer conn (mempty :: LazyByteString) n
   case decode buf of
     Right val -> return val
     Left e -> error e
 
-buffer :: forall connState es. (Conn connState :> es) => LazyByteString -> Int -> Eff es BS.ByteString
-buffer currBuffer remainingBytes = do
-  newBytes <- readBytes @connState remainingBytes
+buffer :: forall c. Connection c -> LazyByteString -> Int -> IO BS.ByteString
+buffer conn currBuffer remainingBytes = do
+  newBytes <- conn `readBytes` remainingBytes
   let bytesInLastMessage = BS.length newBytes
   if bytesInLastMessage == remainingBytes
     then return (toStrict currBuffer <> newBytes)
     else
       let updatedBuffer = currBuffer <> BS.fromStrict newBytes
           updatedRemaining = remainingBytes - bytesInLastMessage
-       in buffer @connState updatedBuffer updatedRemaining
+       in buffer conn updatedBuffer updatedRemaining

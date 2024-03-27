@@ -9,73 +9,73 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 
-module TcpMsg.Effects.Logger (Logger, LoggerActions, logInfo, logDebug, noopLogger, stdLogger, runLogger) where
+-- module TcpMsg.Effects.Logger (Logger, LoggerActions, logInfo, logDebug, noopLogger, stdLogger, runLogger) where
 
-import Control.Concurrent (ThreadId)
+-- import Control.Concurrent (ThreadId)
 
-import qualified Control.Concurrent.STM as STM
-import Control.Monad (forever)
-import Data.Serialize (Serialize)
-import qualified Data.Text as T
-import Data.UnixTime (getUnixTime)
-import Effectful
-  ( Dispatch (Static),
-    DispatchOf,
-    Eff,
-    Effect,
-    IOE,
-    (:>),
-  )
-import Effectful.Concurrent (Concurrent, forkIO)
-import Effectful.Concurrent.Async (Async, async)
-import Effectful.Concurrent.STM (atomically)
-import Effectful.Dispatch.Static
-  ( SideEffects (WithSideEffects),
-    StaticRep,
-    evalStaticRep,
-    getStaticRep,
-    unsafeEff_,
-  )
-import qualified StmContainers.Map as M
-import TcpMsg.Data (Header (Header), UnixMsgTime, fromUnix, Message)
-import TcpMsg.Effects.Connection (Conn, sendMessage)
-import TcpMsg.Parsing (parseMsg)
-import qualified Data.ByteString.Lazy as LBS
-import qualified Data.ByteString as BS
+-- import qualified Control.Concurrent.STM as STM
+-- import Control.Monad (forever)
+-- import Data.Serialize (Serialize)
+-- import qualified Data.Text as T
+-- import Data.UnixTime (getUnixTime)
+-- import Effectful
+--   ( Dispatch (Static),
+--     DispatchOf,
+--     Eff,
+--     Effect,
+--     IOE,
+--     (:>),
+--   )
+-- import Effectful.Concurrent (Concurrent, forkIO)
+-- import Effectful.Concurrent.Async (Async, async)
+-- import Effectful.Concurrent.STM (atomically)
+-- import Effectful.Dispatch.Static
+--   ( SideEffects (WithSideEffects),
+--     StaticRep,
+--     evalStaticRep,
+--     getStaticRep,
+--     unsafeEff_,
+--   )
+-- import qualified StmContainers.Map as M
+-- import TcpMsg.Data (Header (Header), UnixMsgTime, fromUnix, Message)
+-- import TcpMsg.Effects.Connection (Conn, sendMessage)
+-- import TcpMsg.Parsing (parseMsg)
+-- import qualified Data.ByteString.Lazy as LBS
+-- import qualified Data.ByteString as BS
 
-----------------------------------------------------------------------------------------------------------
+-- ----------------------------------------------------------------------------------------------------------
 
-data LoggerActions = LoggerActions
-  { info :: BS.ByteString -> IO (),
-    debug :: BS.ByteString -> IO ()
-  }
+-- data LoggerActions = LoggerActions
+--   { info :: BS.ByteString -> IO (),
+--     debug :: BS.ByteString -> IO ()
+--   }
 
-----------------------------------------------------------------------------------------------------------
+-- ----------------------------------------------------------------------------------------------------------
 
-data Logger :: Effect
+-- data Logger :: Effect
 
-type instance DispatchOf Logger = Static WithSideEffects
+-- type instance DispatchOf Logger = Static WithSideEffects
 
-newtype instance StaticRep Logger = Logger LoggerActions
+-- newtype instance StaticRep Logger = Logger LoggerActions
 
-----------------------------------------------------------------------------------------------------------
+-- ----------------------------------------------------------------------------------------------------------
 
-logInfo :: forall es. (Logger :> es) => BS.ByteString -> Eff es ()
-logInfo msg = do
-  (Logger (LoggerActions{info})) <- (getStaticRep :: Eff es (StaticRep Logger))
-  unsafeEff_ (info msg)
+-- logInfo :: forall es. (Logger :> es) => BS.ByteString -> Eff es ()
+-- logInfo msg = do
+--   (Logger (LoggerActions{info})) <- (getStaticRep :: Eff es (StaticRep Logger))
+--   unsafeEff_ (info msg)
 
-logDebug :: forall es. (Logger :> es) => BS.ByteString -> Eff es ()
-logDebug msg = do
-  (Logger (LoggerActions{debug})) <- (getStaticRep :: Eff es (StaticRep Logger))
-  unsafeEff_ (debug msg)
+-- logDebug :: forall es. (Logger :> es) => BS.ByteString -> Eff es ()
+-- logDebug msg = do
+--   (Logger (LoggerActions{debug})) <- (getStaticRep :: Eff es (StaticRep Logger))
+--   unsafeEff_ (debug msg)
 
-runLogger :: forall es a. (IOE :> es) => LoggerActions -> (Eff (Logger ': es) a) -> Eff es a
-runLogger actions = evalStaticRep (Logger actions)
+-- runLogger :: forall es a. (IOE :> es) => LoggerActions -> (Eff (Logger ': es) a) -> Eff es a
+-- runLogger actions = evalStaticRep (Logger actions)
 
-noopLogger :: LoggerActions
-noopLogger = LoggerActions (\a -> return ()) (\a -> return ())
+-- noopLogger :: LoggerActions
+-- noopLogger = LoggerActions (\a -> return ()) (\a -> return ())
 
-stdLogger :: LoggerActions
-stdLogger = LoggerActions (\a -> return ()) (\a -> return ())
+-- stdLogger :: LoggerActions
+-- stdLogger = LoggerActions (\a -> return ()) (\a -> return ())
   

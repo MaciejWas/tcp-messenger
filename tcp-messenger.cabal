@@ -25,7 +25,7 @@ source-repository head
 
 library
   exposed-modules:
-      Lib
+      TcpMsg
       TcpMsg.Client.Abstract
       TcpMsg.Client.Tcp
       TcpMsg.Data
@@ -43,12 +43,12 @@ library
       Paths_tcp_messenger
   hs-source-dirs:
       src
-  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -fno-full-laziness
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -fno-full-laziness -funfolding-use-threshold=0
   build-depends:
-      base >=4.7 && <5
+      async
+    , base >=4.7 && <5
     , bytestring ==0.11.5.3
     , cereal ==0.5.8.3
-    , effectful ==2.2.2.0
     , exceptions ==0.10.5
     , network ==3.1.4.0
     , socket ==0.8.3.0
@@ -66,12 +66,12 @@ executable tcp-messenger-exe
       Paths_tcp_messenger
   hs-source-dirs:
       app
-  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -fno-full-laziness -threaded -rtsopts -with-rtsopts=-N
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -fno-full-laziness -funfolding-use-threshold=0 -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-      base >=4.7 && <5
+      async
+    , base >=4.7 && <5
     , bytestring ==0.11.5.3
     , cereal ==0.5.8.3
-    , effectful ==2.2.2.0
     , exceptions ==0.10.5
     , network ==3.1.4.0
     , socket ==0.8.3.0
@@ -94,13 +94,13 @@ test-suite tcp-messenger-test
       Paths_tcp_messenger
   hs-source-dirs:
       test
-  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -fno-full-laziness -threaded -rtsopts -with-rtsopts=-N
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -fno-full-laziness -funfolding-use-threshold=0 -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       QuickCheck ==2.14.3
+    , async
     , base >=4.7 && <5
     , bytestring ==0.11.5.3
     , cereal ==0.5.8.3
-    , effectful ==2.2.2.0
     , exceptions ==0.10.5
     , hspec ==2.10.10
     , network ==3.1.4.0

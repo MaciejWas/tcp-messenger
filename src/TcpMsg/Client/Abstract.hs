@@ -66,7 +66,7 @@ startWorker msgs =
     readNextMessage = parseMsg @c @b
     notifyMessageReceived = notifyMessage msgs
 
-runClient ::
+createClient ::
   forall a b c es.
   ( Serialize b,
     Concurrent :> es,

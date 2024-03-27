@@ -51,7 +51,7 @@ import TcpMsg.Effects.Logger (runLogger, noopLogger)
 
 
 import TcpMsg.Server.Abstract (runServer)
-import TcpMsg.Server.Tcp (runTcpConnSupplier, defaultServerOpts, ServerOpts(ServerOpts), ServerHandle (ServerHandle, kill), ServerOpts (port))
+import TcpMsg.Server.Tcp (runTcpConnSupplier, defaultServerTcpSettings, ServerTcpSettings(ServerTcpSettings), ServerHandle (ServerHandle, kill), ServerTcpSettings (port))
 
 import TcpMsg.Client.Abstract (runClient)
 import TcpMsg.Client.Tcp (ClientOpts (ClientOpts, serverHost, serverPort), runTcpConnection)

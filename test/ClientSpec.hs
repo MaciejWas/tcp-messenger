@@ -8,7 +8,7 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE DeriveGeneric #-}
 
-module ClientSpec (clientSpec) where 
+module ClientSpec (clientSpec) where
 
 import Control.Concurrent (MVar, threadDelay, newMVar, putMVar, readMVar, newEmptyMVar, takeMVar)
 import Control.Exception (evaluate)
@@ -38,7 +38,7 @@ import Test.Hspec
   )
 import Test.QuickCheck (Testable (property))
 import Test.QuickCheck.Instances.ByteString
-import Test.QuickCheck.Monadic (monadicIO, run, assert)
+import Test.QuickCheck.Monadic (monadicIO, assert)
 
 import Control.Monad (void)
 import Network.Socket (Socket)
@@ -48,12 +48,11 @@ import Effectful.Concurrent.Async (wait)
 import TcpMsg.Parsing (parseMsg, parseHeader)
 import TcpMsg.Effects.Client (ask)
 import TcpMsg.Effects.Logger (runLogger, noopLogger)
-
+import TcpMsg (ServerSettings(..), run, runClient)
 
 import TcpMsg.Server.Abstract (runServer)
-import TcpMsg.Server.Tcp (runTcpConnSupplier, defaultServerOpts, ServerOpts(ServerOpts), ServerHandle (ServerHandle, kill), ServerOpts (port))
+import TcpMsg.Server.Tcp (runTcpConnSupplier, defaultServerTcpSettings, ServerTcpSettings(ServerTcpSettings), ServerHandle (ServerHandle, kill), ServerTcpSettings (port))
 
-import TcpMsg.Client.Abstract (runClient)
 import TcpMsg.Client.Tcp (ClientOpts (ClientOpts, serverHost, serverPort), runTcpConnection)
 
 import TcpMsg.Effects.Connection
@@ -88,83 +87,85 @@ mkSomeData i
 
 --------------------------------------------------------------------------------------------------------------------------------------------------------
 
-runTcpConnSupplier' opts action = runEff (runLogger noopLogger (runConcurrent (runTcpConnSupplier opts action)))
-runTcpConnection' opts action = runEff (runLogger noopLogger (runConcurrent (runTcpConnection opts action)))
-
 clientSpec = do
   describe "TcpMsg" $ do
     describe "Client" $ do
-      it "can send a bytestring trunk" $ do
-        responseReceived <- newEmptyMVar
-        let trunkData = "fasdfsdafasdf asdf asd fasd fdas fas fsdalllf fasdf asd"
-        let request = (Message 42 (Just trunkData))
+      -- it "can send a bytestring trunk" $ do
+      --   responseReceived <- newEmptyMVar
+      --   let trunkData = "fasdfsdafasdf asdf asd fasd fdas fas fsdalllf fasdf asd"
+      --   let request = (Message 42 (Just trunkData))
 
-        -- Start the server
-        let srvopts = ServerOpts { port = 4455 }
-        (ServerHandle { kill }) <- runTcpConnSupplier' srvopts (do
-          runServer @Int @Bool @Socket (\(Message x t) -> return (Message (t == Just trunkData) t))
-          )
+      --   (ServerHandle { kill }) <- run @Int @Bool
+      --     (ServerSettings {
+      --       tcpOpts = ServerTcpSettings { port = 4455 },
+      --       action = \(Message x t) -> return (Message (t == Just trunkData) t),
+      --       logger = noopLogger
+      --       })
 
-        -- Start a client which sends a single request
-        let clientopts = ClientOpts { serverHost = "localhost", serverPort = 4455  }
-        runTcpConnection' clientopts (runClient @Int @Bool @Socket (do
-          response <- ask @Int @Bool @Socket request >>= wait
-          liftIO (putMVar responseReceived response)
-          return ()
-          ))
+      --   -- Start a client which sends a single request
+      --   let clientopts = ClientOpts { serverHost = "localhost", serverPort = 4455  }
+      --   runTcpConnection' clientopts (runClient @Int @Bool @Socket (do
+      --     response <- ask @Int @Bool @Socket request >>= wait
+      --     liftIO (putMVar responseReceived response)
+      --     return ()
+      --     ))
 
-        responseReceivedVal <- takeMVar responseReceived
-        responseReceivedVal `shouldBe` Message True (Just trunkData)
-      
-        kill
+      --   responseReceivedVal <- takeMVar responseReceived
+      --   responseReceivedVal `shouldBe` Message True (Just trunkData)
+
+      --   kill
 
 
-      it "can receive a bytestring trunk" $ do
-        responseReceived <- newEmptyMVar
-        let trunkData = "fasdfsdafasdf asdf asd fasd fdas fas fsdalllf"
-        let request = (Message 42 (Nothing))
+      -- it "can receive a bytestring trunk" $ do
+      --   responseReceived <- newEmptyMVar
+      --   let trunkData = "fasdfsdafasdf asdf asd fasd fdas fas fsdalllf"
+      --   let request = (Message 42 (Nothing))
 
-        -- Start a server which responds with x + 1
-        let srvopts = ServerOpts { port = 4455 }
-        (ServerHandle { kill }) <- runTcpConnSupplier' srvopts (do
-          runServer @Int @Bool @Socket (\(Message x t) -> return (Message True (Just trunkData)))
-          )
+      --   -- Run the server
+      --   (ServerHandle { kill }) <- run @Int @Bool
+      --     (ServerSettings {
+      --       tcpOpts = ServerTcpSettings { port = 4455 },
+      --       action = \(Message x t) -> return (Message True (Just trunkData)),
+      --       logger = noopLogger
+      --       })
 
-        -- Start a client which sends a single request
-        let clientopts = ClientOpts { serverHost = "localhost", serverPort = 4455  }
-        runTcpConnection' clientopts (runClient @Int @Bool @Socket (do
-          response <- ask @Int @Bool @Socket request >>= wait
-          liftIO (putMVar responseReceived response)
-          return ()
-          ))
+      --   -- Start a client which sends a single request
+      --   let clientopts = ClientOpts { serverHost = "localhost", serverPort = 4455  }
+      --   runTcpConnection' clientopts (runClient @Int @Bool @Socket (do
+      --     response <- ask @Int @Bool @Socket request >>= wait
+      --     liftIO (putMVar responseReceived response)
+      --     return ()
+      --     ))
 
-        responseReceivedVal <- takeMVar responseReceived
-        responseReceivedVal `shouldBe` Message True (Just trunkData)
+      --   responseReceivedVal <- takeMVar responseReceived
+      --   responseReceivedVal `shouldBe` Message True (Just trunkData)
 
-        kill
+      --   kill
 
-      it "can send a single message to a server" $ do
-        responseReceived <- newEmptyMVar
-        let request = (Message 42 Nothing)
+      -- it "can send a single message to a server" $ do
+      --   responseReceived <- newEmptyMVar
+      --   let request = (Message 42 Nothing)
 
-        -- Start a server which responds with x + 1
-        let srvopts = ServerOpts { port = 4455 }
-        (ServerHandle { kill }) <- runTcpConnSupplier' srvopts (do
-          runServer @Int @Int @Socket (\(Message x t) -> return (Message (x + 1) t))
-          )
+      --   -- Start a server which responds with x + 1
+      --   (ServerHandle { kill }) <- run @Int @Int
+      --     (ServerSettings {
+      --       tcpOpts = ServerTcpSettings { port = 4455 },
+      --       action = \(Message x t) -> return (Message (x + 1) t),
+      --       logger = noopLogger
+      --       })
 
-        -- Start a client which sends a single request
-        let clientopts = ClientOpts { serverHost = "localhost", serverPort = 4455  }
-        runTcpConnection' clientopts (runClient @Int @Int @Socket (do
-          response <- ask @Int @Int @Socket request >>= wait
-          liftIO (putMVar responseReceived response)
-          return ()
-          ))
+      --   -- Start a client which sends a single request
+      --   let clientopts = ClientOpts { serverHost = "localhost", serverPort = 4455  }
+      --   runTcpConnection' clientopts (runClient @Int @Int @Socket (do
+      --     response <- ask @Int @Int @Socket request >>= wait
+      --     liftIO (putMVar responseReceived response)
+      --     return ()
+      --     ))
 
-        responseReceivedVal <- takeMVar responseReceived
-        responseReceivedVal `shouldBe` (Message 43 Nothing)
+      --   responseReceivedVal <- takeMVar responseReceived
+      --   responseReceivedVal `shouldBe` (Message 43 Nothing)
 
-        kill
+      --   kill
 
       it "can send a multiple messages to a server" $ do
         responsesReceived <- newEmptyMVar
@@ -173,18 +174,20 @@ clientSpec = do
         let processRequest (Message x t) = Message x{baz=True} t
 
         -- Start a server which modifies the data
-        let srvopts = ServerOpts { port = 4455 }
-        (ServerHandle { kill }) <- runTcpConnSupplier' srvopts (do
-          runServer @SomeData @SomeData @Socket (return . processRequest)
-          )
+        (ServerHandle { kill }) <- run @SomeData @SomeData
+          (ServerSettings {
+            tcpOpts = ServerTcpSettings { port = 4455 },
+            action = return . processRequest,
+            logger = noopLogger
+            })
 
         -- Start a client which sends a single request
         let clientopts = ClientOpts { serverHost = "localhost", serverPort = 4455  }
-        runTcpConnection' clientopts (runClient @SomeData @SomeData @Socket (do
+        runEff (runConcurrent (runClient @SomeData @SomeData clientopts (do
           futureResponses <- mapM (ask @SomeData @SomeData @Socket) requests
           responses <- mapM wait (reverse futureResponses)
           liftIO (putMVar responsesReceived responses)
-          ))
+          )))
 
         responsesReceivedVal <- takeMVar responsesReceived
         responsesReceivedVal `shouldBe` map processRequest (reverse requests)

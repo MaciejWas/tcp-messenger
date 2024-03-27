@@ -25,7 +25,7 @@ dependencies:
 - bytestring == 0.11.5.3
 - network == 3.1.4.0
 - unix-time == 0.4.11
-- effectful == 2.2.2.0
+- async
 - cereal == 0.5.8.3
 - text == 2.0.2
 - stm == 2.5.1.0
@@ -43,6 +43,7 @@ ghc-options:
 - -Wpartial-fields
 - -Wredundant-constraints
 - -fno-full-laziness
+- -funfolding-use-threshold=0
 
 library:
   source-dirs: src

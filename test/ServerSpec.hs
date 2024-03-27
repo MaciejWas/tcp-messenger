@@ -51,7 +51,7 @@ import TcpMsg.Effects.Logger (runLogger, noopLogger)
 
 
 import TcpMsg.Server.Abstract (runServer)
-import TcpMsg.Server.Tcp (runTcpConnSupplier, defaultServerOpts, ServerOpts(ServerOpts), ServerHandle (ServerHandle, kill), ServerOpts (port))
+import TcpMsg.Server.Tcp (runTcpConnSupplier, defaultServerTcpSettings, ServerTcpSettings(ServerTcpSettings), ServerHandle (ServerHandle, kill), ServerTcpSettings (port))
 
 import TcpMsg.Client.Abstract (runClient)
 import TcpMsg.Client.Tcp (ClientOpts (ClientOpts, serverHost, serverPort), runTcpConnection)
@@ -79,12 +79,12 @@ serverSpec = do
   describe "TcpMsg" $ do
     describe "Server" $ do
       it "can start a TCP server" $ do
-        (ServerHandle kill tid) <- runTcpConnSupplier' defaultServerOpts (return ())
+        (ServerHandle kill tid) <- runTcpConnSupplier' defaultServerTcpSettings (return ())
         threadDelay 10000
         kill
 
       it "can start a TCP client" $ do
-        let srvopts = ServerOpts { port = 4455 }
+        let srvopts = ServerTcpSettings { port = 4455 }
         (ServerHandle {kill}) <- runTcpConnSupplier' srvopts (return ())
 
         let clientopts = ClientOpts { serverHost = "localhost", serverPort = 4455 }
@@ -94,7 +94,7 @@ serverSpec = do
         kill
 
       it "can receive connections" $ do
-        let srvopts = ServerOpts { port = 4455 }
+        let srvopts = ServerTcpSettings { port = 4455 }
         connReceived <- newEmptyMVar
 
         (ServerHandle { kill }) <- runTcpConnSupplier' srvopts (do
@@ -113,7 +113,7 @@ serverSpec = do
       it "can receive data" $ do
         let bytes = "AAAAAAFASD FASD FASDF ASD FFF FDASF DAS"
 
-        let srvopts = ServerOpts { port = 4455 }
+        let srvopts = ServerTcpSettings { port = 4455 }
         bytesReceived <- newEmptyMVar
 
         (ServerHandle {kill}) <- runTcpConnSupplier' srvopts (do
@@ -134,14 +134,14 @@ serverSpec = do
         kill
 
       it "can stop a TCP server" $ do
-        let srvopts = ServerOpts { port = 4455  }
+        let srvopts = ServerTcpSettings { port = 4455  }
         (ServerHandle {kill=kill1}) <- runTcpConnSupplier' srvopts (return ())
 
         threadDelay 1000
         kill1
         threadDelay 1000
 
-        let srvopts = ServerOpts { port = 4455  }
+        let srvopts = ServerTcpSettings { port = 4455  }
         (ServerHandle {kill=kill2}) <- runTcpConnSupplier' srvopts (return ())
 
         kill2

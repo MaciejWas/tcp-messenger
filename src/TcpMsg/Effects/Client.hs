@@ -12,35 +12,21 @@
 module TcpMsg.Effects.Client where
 
 import Control.Concurrent (ThreadId)
--- import qualified Data.HashTable.IO as H (BasicHashTable, insert, lookup, new)
+import Control.Concurrent.Async (Async, async)
 
 import qualified Control.Concurrent.STM as STM
 import qualified Data.ByteString.Lazy as LBS
 import Data.Serialize (Serialize)
 import qualified Data.Text as T
+
+import qualified Network.Socket as Net
 import Data.UnixTime (getUnixTime)
-import Effectful
-  ( Dispatch (Static),
-    DispatchOf,
-    Eff,
-    Effect,
-    IOE,
-    (:>),
-  )
-import Effectful.Concurrent (Concurrent, forkIO)
-import Effectful.Concurrent.Async (Async, async)
-import Effectful.Concurrent.STM (atomically)
-import Effectful.Dispatch.Static
-  ( SideEffects (WithSideEffects),
-    StaticRep,
-    evalStaticRep,
-    getStaticRep,
-    unsafeEff_,
-  )
+
 import qualified StmContainers.Map as M
 import TcpMsg.Data (Header (Header), Message, UnixMsgTime, fromUnix)
-import TcpMsg.Effects.Connection (Conn, sendMessage)
+import TcpMsg.Effects.Connection (Connection, sendMessage)
 import TcpMsg.Parsing (parseMsg)
+import Control.Concurrent.STM (atomically)
 
 ----------------------------------------------------------------------------------------------------------
 
@@ -49,37 +35,29 @@ type MessageMap response =
     UnixMsgTime
     (STM.TMVar (Message response))
 
-data ClientState a b = ClientState
+data Client a b c = Client
   { clientName :: T.Text,
     msgs :: STM.TVar (MessageMap b),
-    worker :: ThreadId
+    worker :: ThreadId,
+    connection :: Connection c
   }
 
-----------------------------------------------------------------------------------------------------------
-
-data Client a b :: Effect
-
-type instance DispatchOf (Client a b) = Static WithSideEffects
-
-newtype instance StaticRep (Client a b) = Client (ClientState a b)
+type TcpClient a b = Client a b Net.Socket
 
 ----------------------------------------------------------------------------------------------------------
 
-newMessageId :: forall a b es. (Client a b :> es) => Eff es UnixMsgTime
-newMessageId = fromUnix <$> unsafeEff_ getUnixTime
+newMessageId :: IO UnixMsgTime
+newMessageId = fromUnix <$> getUnixTime
 
 -- Get a map of pending messages
-pendingMessages :: forall a b es. (Client a b :> es) => Eff es (STM.TVar (MessageMap b))
-pendingMessages = do
-  (Client (ClientState {msgs})) <- (getStaticRep :: Eff es (StaticRep (Client a b)))
-  return msgs
+pendingMessages :: Client a b c -> STM.TVar (MessageMap b)
+pendingMessages = msgs
 
-blockingWaitForResponse :: forall a b es. (Concurrent :> es, Client a b :> es) => UnixMsgTime -> Eff es (Message b)
-blockingWaitForResponse unixTime = do
-  msgs <- pendingMessages @a
+blockingWaitForResponse :: Client a b c -> UnixMsgTime -> IO (Message b)
+blockingWaitForResponse client unixTime = do
   atomically
     ( do
-        msgs_ <- STM.readTVar msgs
+        msgs_ <- STM.readTVar (msgs client)
         response <- M.lookup unixTime msgs_
         case response of
           Just r -> M.delete unixTime msgs_ >> STM.takeTMVar r
@@ -98,18 +76,16 @@ blockingWaitForResponse unixTime = do
         return v
 
 ask ::
-  forall a b c es.
-  ( Client a b :> es,
-    Concurrent :> es,
-    Conn c :> es,
+  forall a b c.
     Serialize a
-  ) =>
+  =>
+  Client a b c ->
   Message a ->
-  Eff es (Async (Message b))
-ask msg = sendRequest >>= (async . blockingWaitForResponse @a @b)
+  IO (Async (Message b))
+ask client@Client{connection} msg = sendRequest >>= (async . blockingWaitForResponse client)
   where
-    sendRequest :: Eff es UnixMsgTime
+    sendRequest :: IO UnixMsgTime
     sendRequest = do
-      msgId <- newMessageId @a @b
-      sendMessage @c msgId msg
+      msgId <- newMessageId
+      sendMessage connection msgId msg
       return msgId

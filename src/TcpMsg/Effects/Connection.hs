@@ -4,6 +4,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE InstanceSigs #-}
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -12,31 +13,11 @@
 
 module TcpMsg.Effects.Connection where
 
-import Control.Concurrent (MVar)
+import Control.Concurrent (MVar, newMVar, withMVar)
+import Control.Concurrent.STM.TVar (TVar)
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Lazy as LBS
 import Data.Serialize (Serialize)
-import qualified Data.Text as T
-import Data.UnixTime (UnixTime)
-import Effectful
-  ( Dispatch (Static),
-    DispatchOf,
-    Eff,
-    Effect,
-    IOE,
-    (:>),
-  )
-import Effectful.Concurrent (Concurrent)
-import Effectful.Concurrent.MVar (newMVar, withMVar)
-import Effectful.Concurrent.STM (TVar)
-import Effectful.Dispatch.Static
-  ( SideEffects (WithSideEffects),
-    StaticRep,
-    evalStaticRep,
-    getStaticRep,
-    unsafeEff_,
-  )
-import GHC.Stack (HasCallStack)
+
 import TcpMsg.Data (ClientId, Message, UnixMsgTime, encodeMsg)
 
 ----------------------------------------------------------------------------------------------------------
@@ -63,74 +44,45 @@ type ConnectionRead a = Int -> IO BS.StrictByteString
 type ConnectionWrite a = BS.StrictByteString -> IO ()
 
 -- All necessary operations to handle a connection
-data ConnectionActions a
-  = ConnectionActions
-      (ConnectionHandleRef a) -- Metadata about the connection
-      (WriterMutex) -- So that only one thread can be writing to a connection on a given time
-      (ConnectionRead a) -- Interface for receiving bytes
-      (ConnectionWrite a) -- Interface for sending bytes
+data Connection a
+  = Connection
+  { chandle :: (ConnectionHandleRef a), -- Metadata about the connection
+    cwriterMutex :: (WriterMutex), -- So that only one thread can be writing to a connection on a given time
+    cread :: (ConnectionRead a), -- Interface for receiving bytes
+    cwrite :: (ConnectionWrite a) -- Interface for sending bytes
+  }
 
-mkConnectionActions ::
-  forall es a.
-  (Concurrent :> es) =>
+mkConnection ::
   ConnectionHandleRef a ->
   ConnectionRead a ->
   ConnectionWrite a ->
-  Eff es (ConnectionActions a)
-mkConnectionActions handle connread connwrite = do
+  IO (Connection a)
+mkConnection handle connread connwrite = do
   writerLock <- newMVar ()
-  return (ConnectionActions handle writerLock connread connwrite)
-
-----------------------------------------------------------------------------------------------------------
-
--- | Effect definition
-data Conn a :: Effect
-
-type instance DispatchOf (Conn a) = Static WithSideEffects
-
-newtype instance StaticRep (Conn a) = Conn (ConnectionActions a)
-
-----------------------------------------------------------------------------------------------------------
+  return (Connection handle writerLock connread connwrite)
 
 readBytes ::
-  forall c es.
-  (Conn c :> es) =>
+  forall c.
+  Connection c ->
   Int ->
-  Eff es BS.StrictByteString
-readBytes n = do
-  (Conn (ConnectionActions _ _ connRead _)) <- (getStaticRep :: Eff es (StaticRep (Conn c)))
-  unsafeEff_ (connRead n)
+  IO BS.StrictByteString
+readBytes (Connection {cread}) = cread
 
 writeBytes ::
-  forall c es.
-  ( Concurrent :> es,
-    Conn c :> es
-  ) =>
+  forall c.
+  Connection c ->
   BS.StrictByteString ->
-  Eff es ()
-writeBytes bytes = do
-  (Conn (ConnectionActions _ writerMutex _ connWrite)) <- (getStaticRep :: Eff es (StaticRep (Conn c)))
-  let doWriteBytes (_lock :: ()) = unsafeEff_ (connWrite bytes)
+  IO ()
+writeBytes (Connection {cwrite, cwriterMutex}) bytes =
   withMVar
-    writerMutex
-    doWriteBytes
+    cwriterMutex
+    (const (cwrite bytes))
 
 sendMessage ::
-  forall c a es.
-  ( Concurrent :> es,
-    Conn c :> es,
-    Serialize a
-  ) =>
+  forall c a.
+  (Serialize a) =>
+  Connection c ->
   UnixMsgTime ->
   Message a ->
-  Eff es ()
-sendMessage messageId message = writeBytes @c (encodeMsg messageId message)
-
-runConnection :: forall c a es. (IOE :> es) => ConnectionActions c -> Eff (Conn c ': es) a -> Eff es a
-runConnection connectionActions = evalStaticRep (Conn connectionActions)
-
-----------------------------------------------------------------------------------------------------------
--- Various helpers
-
-showConn :: ConnectionHandle a -> T.Text
-showConn (ConnectionHandle {}) = "TODO: conn representation"
+  IO ()
+sendMessage c messageId message = writeBytes c (encodeMsg messageId message)

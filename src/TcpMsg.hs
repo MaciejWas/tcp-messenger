@@ -6,8 +6,8 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 
-module Lib
-  ( run, runClient
+module TcpMsg
+  ( run, runClient, ServerSettings(..)
   )
 where
 
@@ -21,11 +21,11 @@ import TcpMsg.Effects.Client (Client)
 import TcpMsg.Effects.Connection (Conn)
 import TcpMsg.Effects.Logger (LoggerActions, Logger, runLogger, noopLogger)
 import TcpMsg.Server.Abstract (runServer)
-import TcpMsg.Server.Tcp (ServerOpts, ServerHandle, defaultServerOpts, runTcpConnSupplier)
+import TcpMsg.Server.Tcp (ServerTcpSettings, ServerHandle, defaultServerTcpSettings, runTcpConnSupplier)
 import TcpMsg.Data (Message)
 
 data ServerSettings a b es = ServerSettings
-  { tcpOpts :: ServerOpts,
+  { tcpOpts :: ServerTcpSettings,
     action :: Message a -> IO (Message b),
     logger :: LoggerActions
   }
@@ -33,7 +33,7 @@ data ServerSettings a b es = ServerSettings
 defaultServerSettings :: ServerSettings a a es
 defaultServerSettings =
   ServerSettings
-    { tcpOpts = defaultServerOpts,
+    { tcpOpts = defaultServerTcpSettings,
       action = return,
       logger = noopLogger
     }

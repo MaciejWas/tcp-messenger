@@ -8,48 +8,44 @@
 
 module TcpMsg.Server.Abstract where
 
-import Control.Monad (void, forever)
+import Control.Monad (forever, void)
 import Data.Serialize (Serialize)
-import Effectful (Eff, IOE, (:>))
-import Effectful.Concurrent (Concurrent, forkIO)
-import TcpMsg.Effects.Logger (Logger)
+import TcpMsg.Data (Header (Header), Message, headersize)
 import TcpMsg.Effects.Connection (Conn, readBytes, sendMessage)
-import TcpMsg.Effects.Supplier ( eachConnectionDo, ConnSupplier )
-import TcpMsg.Data (Header (Header), headersize, Message)
+import TcpMsg.Effects.Logger (Logger)
+import TcpMsg.Effects.Supplier (ConnSupplier, eachConnectionDo)
 import TcpMsg.Parsing (parseMsg)
-import Effectful.Dispatch.Static (unsafeEff_)
 
 eachRequestDo ::
-  forall connState es a b.
-  ( Concurrent :> es,
-    Serialize a,
+  forall a b c.
+  ( Serialize a,
     Serialize b
   ) =>
+  Connection c ->
   (Message a -> IO (Message b)) ->
-  Eff (Conn connState ': es) ()
-eachRequestDo respond = forever (do
-    (Header messageId _ _, msg) <- parseMsg @connState
-    inParallel (unsafeEff_ (respond msg) >>= sendMessage @connState messageId)
-  )
+  IO ()
+eachRequestDo conn respond =
+  forever
+    ( do
+        (Header messageId _ _, msg) <- parseMsg conn
+        inParallel (respond msg >>= conn `sendMessage` messageId)
+    )
 
 ----------------------------------------------------------------------------------------------------------
 
 runServer ::
-  forall a b connState es.
-  ( IOE :> es,
-    Concurrent :> es,
-    ConnSupplier connState :> es,
-    Logger :> es,
-    Serialize a,
+  forall a b c.
+  ( Serialize a,
     Serialize b
   ) =>
+  ConnSupplier c ->
   (Message a -> IO (Message b)) ->
-  Eff es ()
-runServer respond =
-  let respondToRequests = eachRequestDo @connState @es @a @b respond
-   in eachConnectionDo (inParallel respondToRequests)
+  IO ()
+runServer supplier respond =
+  eachConnectionDo
+    supplier
+    (`eachRequestDo` respond)
 
-----------------------------------------------------------------------------------------------------------
 
 inParallel :: forall es. (Concurrent :> es) => Eff es () -> Eff es ()
 inParallel = void . forkIO
