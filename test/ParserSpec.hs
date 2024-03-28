@@ -1,33 +1,45 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE NamedFieldPuns #-}
-{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE TypeOperators #-}
 
 module ParserSpec (parserSpec) where
 
-import Control.Concurrent (MVar, threadDelay, newMVar, putMVar, readMVar, newEmptyMVar, takeMVar)
+import Control.Concurrent (MVar, newEmptyMVar, newMVar, putMVar, readMVar, takeMVar, threadDelay)
+import Control.Concurrent.STM (STM, atomically)
+import Control.Concurrent.STM.TVar (modifyTVar, newTVarIO, readTVar, writeTVar)
 import Control.Exception (evaluate)
+import Control.Monad (replicateM, unless, void)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as LBS
 import Data.Serialize (Serialize)
 import qualified Data.Text as T
-import Effectful
-  ( Dispatch (Static),
-    DispatchOf,
-    Eff,
-    Effect,
-    IOE,
-    runEff,
-    (:>), MonadIO (liftIO),
-  )
-import Effectful.Concurrent (Concurrent, runConcurrent)
-import Effectful.Concurrent.STM (STM, atomically, modifyTVar, newTVar, newTVarIO, readTVar, writeTVar, readTVarIO)
 import GHC.Base (undefined)
 import GHC.Generics (Generic)
+import Network.Socket (Socket)
+import System.Socket (receive)
+import TcpMsg.Client.Abstract (createClient)
+import TcpMsg.Client.Tcp (ClientOpts (ClientOpts, serverHost, serverPort))
+import TcpMsg.Data (Header (Header), Message (Message), UnixMsgTime, encodeMsg)
+import TcpMsg.Effects.Client (ask)
+import TcpMsg.Effects.Connection
+  ( Connection (..),
+    ConnectionHandle (ConnectionHandle),
+    ConnectionHandleRef,
+    ConnectionInfo (ConnectionInfo),
+    mkConnection,
+    readBytes,
+    writeBytes,
+  )
+import TcpMsg.Effects.Supplier (eachConnectionDo, nextConnection)
+import TcpMsg.Parsing (parseHeader, parseMsg)
+import TcpMsg.Server.Abstract (runServer)
+import TcpMsg.Server.Tcp (ServerTcpSettings (ServerTcpSettings, port), defaultServerTcpSettings)
 import Test.Hspec
   ( anyException,
     describe,
@@ -38,37 +50,8 @@ import Test.Hspec
   )
 import Test.QuickCheck (Testable (property))
 import Test.QuickCheck.Instances.ByteString
-import Test.QuickCheck.Monadic (monadicIO, run, assert)
-
-import Control.Monad (void)
-import Network.Socket (Socket)
-
-import Effectful.Concurrent.Async (wait)
-
-import TcpMsg.Parsing (parseMsg, parseHeader)
-import TcpMsg.Effects.Client (ask)
-import TcpMsg.Effects.Logger (runLogger, noopLogger)
-
-
-import TcpMsg.Server.Abstract (runServer)
-import TcpMsg.Server.Tcp (runTcpConnSupplier, defaultServerTcpSettings, ServerTcpSettings(ServerTcpSettings), ServerHandle (ServerHandle, kill), ServerTcpSettings (port))
-
-import TcpMsg.Client.Abstract (runClient)
-import TcpMsg.Client.Tcp (ClientOpts (ClientOpts, serverHost, serverPort), runTcpConnection)
-
-import TcpMsg.Effects.Connection
-    ( ConnectionActions(ConnectionActions),
-      ConnectionHandle(ConnectionHandle),
-      ConnectionHandleRef,
-      ConnectionInfo(ConnectionInfo),
-      Conn,
-      mkConnectionActions,
-      runConnection,
-      readBytes,
-      writeBytes )
-import TcpMsg.Effects.Supplier (nextConnection, eachConnectionDo)
-
-import TcpMsg.Data (encodeMsg, Header (Header), UnixMsgTime, Message(Message))
+import Test.QuickCheck.Monadic (assert, monadicIO, run)
+import Data.Maybe (fromMaybe)
 
 data MockConnStream
   = MockConnStream
@@ -78,47 +61,55 @@ data MockConnStream
 testConnHandle :: BS.StrictByteString -> ConnectionHandle MockConnStream
 testConnHandle input = ConnectionHandle (ConnectionInfo mempty) (MockConnStream input mempty)
 
-testConnActions ::
-  forall es.
-  (Concurrent :> es) =>
+testConn ::
   ConnectionHandleRef MockConnStream ->
-  Eff es (ConnectionActions MockConnStream)
-testConnActions connHandleRef = do
-  mkConnectionActions connHandleRef mockConnStreamRead mockConnStreamWrite
+  Maybe Int ->
+  IO (Connection MockConnStream)
+testConn connHandleRef maxRead = do
+  mkConnection connHandleRef mockConnStreamRead mockConnStreamWrite
   where
     mockConnStreamWrite :: BS.StrictByteString -> IO ()
-    mockConnStreamWrite bytes = runEff (runConcurrent (atomically go))
+    mockConnStreamWrite bytes = atomically go
       where
         go :: STM ()
         go = modifyTVar connHandleRef (\(ConnectionHandle info (MockConnStream inp outp)) -> ConnectionHandle info (MockConnStream inp (outp <> bytes)))
 
     mockConnStreamRead :: Int -> IO BS.StrictByteString
-    mockConnStreamRead size = runEff (runConcurrent (atomically go))
+    mockConnStreamRead size = atomically go
       where
         go :: STM BS.StrictByteString
         go = do
           (ConnectionHandle info (MockConnStream inp outp)) <- readTVar connHandleRef
-          let (read, remain) = BS.splitAt size inp
+          let actualsize = min size (fromMaybe size maxRead) -- Restrict size of returned bytestring
+          let (read, remain) = BS.splitAt actualsize inp
           writeTVar connHandleRef (ConnectionHandle info (MockConnStream remain outp))
           return read
 
-inConnectionContext ::
+connectionWhichYields ::
   forall a x.
   (Serialize a) =>
   [(UnixMsgTime, Message a)] ->
-  Eff '[Conn MockConnStream, Concurrent, IOE] x ->
-  IO x
-inConnectionContext messages action =
+  IO (Connection MockConnStream)
+connectionWhichYields messages =
   let inputStream = foldl (<>) mempty (map (uncurry encodeMsg) messages)
       testHandle = testConnHandle inputStream
-  in runEff (runConcurrent (do
-    testHandleRef <- newTVarIO testHandle
-    connActions <- testConnActions testHandleRef
-    runConnection connActions action
-  ))
+   in do
+        testHandleRef <- newTVarIO testHandle
+        testConn testHandleRef Nothing
+
+connectionWhichYieldsAndLimitsBytes ::
+  forall a x.
+  (Serialize a) =>
+  [(UnixMsgTime, Message a)] ->
+  IO (Connection MockConnStream)
+connectionWhichYieldsAndLimitsBytes messages =
+  let inputStream = foldl (<>) mempty (map (uncurry encodeMsg) messages)
+      testHandle = testConnHandle inputStream
+   in do
+        testHandleRef <- newTVarIO testHandle
+        testConn testHandleRef (Just 10)
 
 --------------------------------------------------------------------------------------------------------------------------------------------------------
-
 
 parserSpec = do
   describe "TcpMsg" $ do
@@ -128,14 +119,68 @@ parserSpec = do
           property $ \(messageId :: UnixMsgTime) (payload :: BS.ByteString) -> BS.isInfixOf payload (encodeMsg messageId (Message payload Nothing))
 
     describe "Parsing" $ do
-      describe "parseMsg" $ do
-        it "parses a header" $ do
-          property $ \(messageId :: UnixMsgTime) (payload :: BS.ByteString)  -> monadicIO $ do
-            (Header responseMsgId _ _) <- run (inConnectionContext [(messageId, Message payload Nothing)] (parseHeader @MockConnStream))
+      describe "parseHeader" $ do
+        it "parses message id" $ do
+          property $ \(messageId :: UnixMsgTime) (payload :: BS.ByteString) -> monadicIO $ do
+            (Header responseMsgId _ _) <- run (connectionWhichYields [(messageId, Message payload Nothing)] >>= parseHeader)
             assert (responseMsgId == messageId)
 
-        it "parses a message" $ do
-          property $ \(messageId :: UnixMsgTime) (payload :: BS.ByteString)  -> monadicIO $ do
-            (Header responseMsgId _ _, Message response _) <- run (inConnectionContext [(messageId, Message payload Nothing)] (parseMsg @MockConnStream @BS.ByteString))
-            assert (response == payload)
-            assert (responseMsgId == messageId)
+        it "parses message size" $ do
+          property $ \(messageId :: UnixMsgTime) (payload :: BS.ByteString) -> monadicIO $ do
+            (Header _ sizeOfData _) <- run (connectionWhichYields [(messageId, Message payload Nothing)] >>= parseHeader)
+            assert (sizeOfData >= BS.length payload)
+
+        it "parses trunk size" $ do
+          property $ \(messageId :: UnixMsgTime) (trunk :: Maybe LBS.ByteString) -> monadicIO $ do
+            (Header _ _ sizeOfTrunk) <- run (connectionWhichYields [(messageId, Message () trunk)] >>= parseHeader)
+            case trunk of
+              Nothing -> assert (sizeOfTrunk == 0)
+              Just x -> assert (sizeOfTrunk == LBS.length x)
+
+      describe "parseMsg" $ do
+        it "parses message body (bytestring)" $ do
+          property $ \(messageId :: UnixMsgTime) (payload :: BS.ByteString) -> monadicIO $ do
+            (_, Message body trunk) <- run (connectionWhichYields [(messageId, Message payload Nothing)] >>= parseMsg)
+            assert (body == payload)
+
+        it "parses message body (int)" $ do
+          property $ \(messageId :: UnixMsgTime) (payload :: Int) -> monadicIO $ do
+            (_, Message body trunk) <- run (connectionWhichYields [(messageId, Message payload Nothing)] >>= parseMsg)
+            assert (body == payload)
+
+        it "parses message body (tuple)" $ do
+          property $ \(messageId :: UnixMsgTime) (payload :: (String, Int, ())) -> monadicIO $ do
+            (_, Message body trunk) <- run (connectionWhichYields [(messageId, Message payload Nothing)] >>= parseMsg)
+            assert (body == payload)
+
+        it "parses message body (list of tuples)" $ do
+          property $ \(messageId :: UnixMsgTime) (payload :: [(String, Int, ())]) -> monadicIO $ do
+            (_, Message body trunk) <- run (connectionWhichYields [(messageId, Message payload Nothing)] >>= parseMsg)
+            assert (body == payload)
+
+        it "parses many messages" $ do
+          property $ \(messageId :: UnixMsgTime) (payloads :: [(String, Int, Bool)]) -> monadicIO $ do
+            unless (null payloads) $ do
+              let messages = map (\p -> (messageId, Message p Nothing)) payloads
+              received <-
+                run
+                  ( connectionWhichYields messages
+                      >>= \conn -> replicateM (length payloads) (parseMsg conn)
+                  )
+              mapM_
+                (\(payload, (Header _ _ _, Message body trunk)) -> assert (body == payload))
+                (zip payloads received)
+
+        describe "when connection is limited" $ do
+          it "parses many messages" $ do
+            property $ \(messageId :: UnixMsgTime) (payloads :: [(String, Int, Bool)]) -> monadicIO $ do
+              unless (null payloads) $ do
+                let messages = map (\p -> (messageId, Message p Nothing)) payloads
+                received <-
+                  run
+                    ( connectionWhichYieldsAndLimitsBytes messages
+                        >>= \conn -> replicateM (length payloads) (parseMsg conn)
+                    )
+                mapM_
+                  (\(payload, (Header _ _ _, Message body trunk)) -> assert (body == payload))
+                  (zip payloads received)

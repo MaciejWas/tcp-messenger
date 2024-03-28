@@ -7,35 +7,34 @@
 {-# LANGUAGE TypeOperators #-}
 
 module TcpMsg
-  ( run, runClient, ServerSettings(..)
+  ( run, createClient, ServerSettings(..)
   )
 where
 
 import Data.Serialize (Serialize)
-import Effectful (Eff, IOE, runEff, (:>))
-import Effectful.Concurrent (Concurrent, runConcurrent)
+
 import Network.Socket (Socket)
-import qualified TcpMsg.Client.Abstract as C (runClient)
-import TcpMsg.Client.Tcp (ClientOpts, runTcpConnection)
+import qualified TcpMsg.Client.Abstract as C (createClient)
+import TcpMsg.Client.Tcp (ClientOpts, createClientConnection)
 import TcpMsg.Effects.Client (Client)
-import TcpMsg.Effects.Connection (Conn)
-import TcpMsg.Effects.Logger (LoggerActions, Logger, runLogger, noopLogger)
+import TcpMsg.Effects.Connection (Connection)
+
 import TcpMsg.Server.Abstract (runServer)
-import TcpMsg.Server.Tcp (ServerTcpSettings, ServerHandle, defaultServerTcpSettings, runTcpConnSupplier)
+import TcpMsg.Server.Tcp (ServerTcpSettings, defaultServerTcpSettings, createTcpConnSupplier)
 import TcpMsg.Data (Message)
+import Data.Void (Void)
+import qualified Network.Socket as Net
 
 data ServerSettings a b es = ServerSettings
   { tcpOpts :: ServerTcpSettings,
-    action :: Message a -> IO (Message b),
-    logger :: LoggerActions
+    action :: Message a -> IO (Message b)
   }
 
 defaultServerSettings :: ServerSettings a a es
 defaultServerSettings =
   ServerSettings
     { tcpOpts = defaultServerTcpSettings,
-      action = return,
-      logger = noopLogger
+      action = return
     }
 
 run ::
@@ -44,16 +43,17 @@ run ::
     Serialize b
   ) =>
   ServerSettings a b es ->
-  IO ServerHandle
-run (ServerSettings {tcpOpts, action, logger}) = runEff (runConcurrent (runLogger logger (runTcpConnSupplier tcpOpts (runServer @a @b @Socket action))))
+  IO Void
+run (ServerSettings {tcpOpts, action}) = do
+  connSupplier <- createTcpConnSupplier tcpOpts
+  runServer connSupplier action
 
-runClient ::
-  forall a b es.
-  ( Serialize b,
-    Concurrent :> es,
-    IOE :> es
+createClient ::
+  forall a b.
+  ( Serialize b
   ) =>
   ClientOpts ->
-  Eff (Client a b ': Conn Socket ': es) () ->
-  Eff es ()
-runClient opts action = runTcpConnection opts (C.runClient @a @b @Socket action)
+  IO (Client a b Net.Socket)
+createClient opts = do
+  conn <- createClientConnection opts
+  C.createClient conn

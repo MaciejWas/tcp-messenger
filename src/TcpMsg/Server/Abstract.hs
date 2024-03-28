@@ -11,10 +11,11 @@ module TcpMsg.Server.Abstract where
 import Control.Monad (forever, void)
 import Data.Serialize (Serialize)
 import TcpMsg.Data (Header (Header), Message, headersize)
-import TcpMsg.Effects.Connection (Conn, readBytes, sendMessage)
-import TcpMsg.Effects.Logger (Logger)
-import TcpMsg.Effects.Supplier (ConnSupplier, eachConnectionDo)
+import TcpMsg.Effects.Connection (Connection, readBytes, sendMessage)
+import TcpMsg.Effects.Supplier (ConnectionSupplier, eachConnectionDo)
 import TcpMsg.Parsing (parseMsg)
+import Control.Concurrent (forkIO)
+import Data.Void (Void)
 
 eachRequestDo ::
   forall a b c.
@@ -38,14 +39,14 @@ runServer ::
   ( Serialize a,
     Serialize b
   ) =>
-  ConnSupplier c ->
+  ConnectionSupplier c ->
   (Message a -> IO (Message b)) ->
-  IO ()
+  IO Void
 runServer supplier respond =
   eachConnectionDo
     supplier
     (`eachRequestDo` respond)
 
 
-inParallel :: forall es. (Concurrent :> es) => Eff es () -> Eff es ()
+inParallel :: IO () -> IO ()
 inParallel = void . forkIO

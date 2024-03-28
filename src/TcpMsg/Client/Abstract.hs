@@ -10,33 +10,24 @@
 {-# LANGUAGE TypeOperators #-}
 
 module TcpMsg.Client.Abstract where
-import Control.Concurrent (ThreadId)
+import Control.Concurrent (ThreadId, forkIO)
 
 import qualified Control.Concurrent.STM as STM
 import Control.Monad (forever)
 import Data.Serialize (Serialize)
-import Effectful
-  ( Eff,
-      IOE,
-      (:>),
-  )
-import Effectful.Concurrent (Concurrent, forkIO)
-import Effectful.Concurrent.STM (atomically)
-import Effectful.Dispatch.Static
-  ( evalStaticRep,
-  )
+
 import qualified StmContainers.Map as M
 import TcpMsg.Data (Header (Header), Message)
-import TcpMsg.Effects.Connection (Conn)
+import TcpMsg.Effects.Connection (Connection)
 import TcpMsg.Parsing (parseMsg)
-import TcpMsg.Effects.Client (Client, MessageMap, StaticRep (Client), ClientState (ClientState))
+import TcpMsg.Effects.Client (Client (Client), MessageMap)
+import Control.Concurrent.STM (atomically)
 
 notifyMessage ::
-  forall b es.
-  (Concurrent :> es) =>
+  forall b .
   STM.TVar (MessageMap b) ->
   (Header, Message b) ->
-  Eff es ()
+  IO ()
 notifyMessage msgs (Header msgTime _ _, newMsg) =
   atomically
     ( do
@@ -52,32 +43,25 @@ notifyMessage msgs (Header msgTime _ _, newMsg) =
     )
 
 startWorker ::
-  forall b c es.
-  ( Serialize b,
-    Concurrent :> es,
-    Conn c :> es
-  ) =>
+  forall b c.
+  ( Serialize b) =>
+  Connection c ->
   STM.TVar (MessageMap b) ->
-  Eff es ThreadId
-startWorker msgs =
+  IO ThreadId
+startWorker conn msgs =
   (forkIO . forever)
     (readNextMessage >>= notifyMessageReceived)
   where
-    readNextMessage = parseMsg @c @b
+    readNextMessage = parseMsg conn
     notifyMessageReceived = notifyMessage msgs
 
 createClient ::
-  forall a b c es.
-  ( Serialize b,
-    Concurrent :> es,
-    Conn c :> es,
-    IOE :> es
+  forall a b c.
+  ( Serialize b
   ) =>
-  Eff (Client a b : es) () ->
-  Eff es ()
-runClient op = do
+  Connection c ->
+  IO (Client a b c)
+createClient conn = do
   msgs <- atomically (M.new >>= STM.newTVar)
-  workerThreadId <- startWorker @b @c msgs
-  evalStaticRep
-    (Client @a @b (ClientState mempty msgs workerThreadId))
-    op
+  workerThreadId <- startWorker conn msgs
+  return (Client mempty msgs workerThreadId conn)

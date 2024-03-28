@@ -31,7 +31,6 @@ library
       TcpMsg.Data
       TcpMsg.Effects.Client
       TcpMsg.Effects.Connection
-      TcpMsg.Effects.Logger
       TcpMsg.Effects.Supplier
       TcpMsg.Network
       TcpMsg.Parsing

@@ -13,16 +13,11 @@
 
 module TcpMsg.Server.Tcp where
 
-import Control.Concurrent (ThreadId, killThread)
 import Control.Concurrent.STM.TVar (newTVarIO)
-import Control.Exception (finally)
-import qualified Control.Exception as E
 import qualified Network.Socket as Net
   ( PortNumber,
     Socket,
     accept,
-    close,
-    gracefulClose,
     openSocket,
   )
 import qualified Network.Socket.ByteString as Net

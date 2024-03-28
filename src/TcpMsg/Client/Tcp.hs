@@ -13,15 +13,8 @@
 
 module TcpMsg.Client.Tcp where
 
+import Control.Concurrent.STM (newTVarIO)
 import qualified Control.Monad.Catch as Err
-import Effectful
-  ( Eff,
-    IOE,
-    MonadIO (liftIO),
-    (:>),
-  )
-import Effectful.Concurrent (Concurrent)
-import Effectful.Concurrent.STM (newTVarIO)
 import qualified Network.Socket as Net
   ( AddrInfo (addrAddress),
     HostName,
@@ -33,11 +26,11 @@ import qualified Network.Socket as Net
     openSocket,
   )
 import qualified Network.Socket.ByteString as Net
-import TcpMsg.Effects.Connection (Conn, ConnectionHandle (ConnectionHandle), ConnectionInfo (ConnectionInfo), mkConnectionActions, runConnection)
+import TcpMsg.Effects.Connection (Connection, ConnectionHandle (ConnectionHandle), ConnectionInfo (ConnectionInfo), mkConnection)
 import TcpMsg.Network (getAddr)
 
-createSocket :: ClientOpts -> IO Net.Socket
-createSocket (ClientOpts {serverHost, serverPort}) = do
+connectToServer :: ClientOpts -> IO Net.Socket
+connectToServer (ClientOpts {serverHost, serverPort}) = do
   addrInfo <- getAddr serverHost serverPort
   serverSocket <- Net.openSocket addrInfo
   Net.connect serverSocket (Net.addrAddress addrInfo)
@@ -48,32 +41,21 @@ data ClientOpts = ClientOpts
     serverPort :: Net.PortNumber
   }
 
--- | Runs a `Connection` effect. In other words, provides an environment where
--- | data can be sent / read
-runTcpConnection ::
-  forall a es.
-  (IOE :> es, Concurrent :> es) =>
+createClientConnection ::
   ClientOpts ->
-  Eff (Conn Net.Socket ': es) a ->
-  Eff es a
-runTcpConnection opts operation =
+  IO (Connection Net.Socket)
+createClientConnection opts =
   do
-    serverSocket <- liftIO (createSocket opts)
+    socket <- connectToServer opts
 
     connRef <-
       newTVarIO
         ( ConnectionHandle
             (ConnectionInfo "some conn")
-            serverSocket
+            socket
         )
 
-    connActions <-
-      mkConnectionActions
-        connRef
-        (Net.recv serverSocket)
-        (Net.sendAll serverSocket)
-
-    runConnection
-      connActions
-      operation
-
+    mkConnection
+      connRef
+      (Net.recv socket)
+      (Net.sendAll socket)
