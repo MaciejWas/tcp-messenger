@@ -40,4 +40,10 @@ jobs:
     - name: Build
       run: cabal build --enable-tests --enable-benchmarks all
     - name: Run tests
-      run: cabal new-test all --test-show-details=streaming
+      run: |
+        cabal new-test all --test-show-details=streaming --enable-coverage
+        proj=tcp-messenger-0.1.0.0
+        tix=$(find ./dist-newstyle -name $proj.tix)
+        mix=$(find ./dist-newstyle -name vanilla -print -quit)/mix/$proj
+        hpc-codecov --mix=$mix --exclude=Paths_hpc_codecov --out=codecov.json $tix
+        bash <(curl -s https://codecov.io/bash)
