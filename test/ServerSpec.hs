@@ -10,8 +10,8 @@
 
 module ServerSpec (serverSpec) where
 
-import Control.Concurrent (MVar, threadDelay, newMVar, putMVar, readMVar, newEmptyMVar, takeMVar)
-import Control.Exception (evaluate)
+import Control.Concurrent (MVar, threadDelay, throwTo, killThread, forkIO)
+import Control.Exception (evaluate, SomeException (SomeException), Exception (toException))
 import qualified Data.ByteString as BS
 import Data.Serialize (Serialize)
 import qualified Data.Text as T
@@ -30,7 +30,7 @@ import Test.QuickCheck (Testable (property))
 import Test.QuickCheck.Instances.ByteString
 import Test.QuickCheck.Monadic (monadicIO, run, assert)
 
-import Control.Monad (void)
+import Control.Monad (void, mapM, replicateM)
 import Network.Socket (Socket)
 
 
@@ -55,76 +55,83 @@ import TcpMsg.Effects.Supplier (nextConnection, eachConnectionDo)
 
 import TcpMsg.Data (encodeMsg, Header (Header), UnixMsgTime, Message(Message))
 
+import TcpMsg (ServerSettings(ServerSettings, tcpOpts, action), createClient)
+import qualified TcpMsg (run)
+import qualified Control.Monad.Catch as E
+import Control.Concurrent.STM (newTMVarIO)
+
+import Control.Concurrent.MVar (newEmptyMVar, newMVar, putMVar, readMVar, newEmptyMVar, takeMVar, isEmptyMVar)
+import Control.Concurrent.Async (wait)
+
 --------------------------------------------------------------------------------------------------------------------------------------------------------
 
 serverSpec = do
-  describe "TcpMsg" $ do
-    describe "Server" $ do
-      return ()
-      -- it "can start a TCP server" $ do
-      --   (ServerHandle kill tid) <- runTcpConnSupplier' defaultServerTcpSettings (return ())
-      --   threadDelay 10000
-      --   kill
+  describe "Server" $ do
+    it "can start a TCP server" $ do
+      err <- newEmptyMVar
 
-      -- it "can start a TCP client" $ do
-      --   let srvopts = ServerTcpSettings { port = 4455 }
-      --   (ServerHandle {kill}) <- runTcpConnSupplier' srvopts (return ())
+      tid <- forkIO (void (
+        E.onError 
+          (TcpMsg.run @Int @Int (ServerSettings{ tcpOpts=ServerTcpSettings { port = 44551 }, action=return}))
+          (putMVar err ())
+        ))
 
-      --   let clientopts = ClientOpts { serverHost = "localhost", serverPort = 4455 }
-      --   runTcpConnection' clientopts (return ())
+      threadDelay 10000
+      isEmptyMVar err >>= shouldBe True -- Assert that the server thread had no errors
+      killThread tid
 
-      --   threadDelay 10000
-      --   kill
+    it "can start a TCP client" $ do
+      err <- newEmptyMVar
 
-      -- it "can receive connections" $ do
-      --   let srvopts = ServerTcpSettings { port = 4455 }
-      --   connReceived <- newEmptyMVar
+      tid <- forkIO (void (
+        E.onError 
+          (TcpMsg.run @Int @Int (ServerSettings{ tcpOpts=ServerTcpSettings { port = 44551 }, action=return}))
+          (putMVar err ())
+        ))
 
-      --   (ServerHandle { kill }) <- runTcpConnSupplier' srvopts (do
-      --     c <- nextConnection @Socket
-      --     liftIO (putMVar connReceived True)
-      --     )
+      threadDelay 10000
 
-      --   let clientopts = ClientOpts { serverHost = "localhost", serverPort = 4455  }
-      --   runTcpConnection' clientopts (void (writeBytes @Socket "AAAA"))
+      client <- TcpMsg.createClient @Int @Int (ClientOpts { serverHost = "localhost", serverPort = 44551  })
+      response <- client `ask` Message 1234 Nothing >>= wait
 
-      --   connReceivedVal <- takeMVar connReceived
-      --   connReceivedVal `shouldBe` True
+      threadDelay 10000
+      isEmptyMVar err >>= shouldBe True -- Assert that the server thread had no errors
+      killThread tid
 
-      --   kill
+      response `shouldBe` (Message 1234 Nothing) -- Assert that the server thread had no errors
 
-      -- it "can receive data" $ do
-      --   let bytes = "AAAAAAFASD FASD FASDF ASD FFF FDASF DAS"
+    it "can handle multiple connections" $ do
+      err <- newEmptyMVar
 
-      --   let srvopts = ServerTcpSettings { port = 4455 }
-      --   bytesReceived <- newEmptyMVar
+      tid <- forkIO (void (
+        E.onError 
+          (TcpMsg.run @Int @Int (ServerSettings{ tcpOpts=ServerTcpSettings { port = 44551 }, action=return}))
+          (putMVar err ())
+        ))
 
-      --   (ServerHandle {kill}) <- runTcpConnSupplier' srvopts (do
-      --     eachConnectionDo @Socket (do
-      --       bs <- readBytes @Socket (BS.length bytes)
-      --       liftIO (putMVar bytesReceived bs)
-      --       )
-      --     )
+      threadDelay 10000
 
-      --   let clientopts = ClientOpts { serverHost = "localhost", serverPort = 4455  }
-      --   runTcpConnection'
-      --     clientopts
-      --     (void (writeBytes @Socket bytes))
+      responses <- replicateM 50 (do
+        client <- TcpMsg.createClient @Int @Int (ClientOpts { serverHost = "localhost", serverPort = 44551  })
+        client `ask` Message 1234 Nothing
+        )
 
-      --   connReceivedVal <- takeMVar bytesReceived
-      --   connReceivedVal `shouldBe` bytes
+      threadDelay 10000
+      isEmptyMVar err >>= shouldBe True -- Assert that the server thread had no errors
+      killThread tid
 
-      --   kill
+      mapM wait responses >>= shouldBe (replicate 50 (Message 1234 Nothing)) -- Assert that the server thread had no errors
+    
+    it "can stop a TCP server" $ do
+      tid <- forkIO (void (
+          TcpMsg.run @Int @Int (ServerSettings{ tcpOpts=ServerTcpSettings { port = 44551 }, action=return})
+        ))
+      threadDelay 100
+      killThread tid
 
-      -- it "can stop a TCP server" $ do
-      --   let srvopts = ServerTcpSettings { port = 4455  }
-      --   (ServerHandle {kill=kill1}) <- runTcpConnSupplier' srvopts (return ())
-
-      --   threadDelay 1000
-      --   kill1
-      --   threadDelay 1000
-
-      --   let srvopts = ServerTcpSettings { port = 4455  }
-      --   (ServerHandle {kill=kill2}) <- runTcpConnSupplier' srvopts (return ())
-
-      --   kill2
+      tid2 <- forkIO (void (
+          TcpMsg.run @Int @Int (ServerSettings{ tcpOpts=ServerTcpSettings { port = 44551 }, action=return})
+        ))
+      threadDelay 100
+      killThread tid2
+      

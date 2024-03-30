@@ -18,7 +18,7 @@ import qualified Network.Socket as Net
   ( PortNumber,
     Socket,
     accept,
-    openSocket,
+    openSocket, close, gracefulClose,
   )
 import qualified Network.Socket.ByteString as Net
 import TcpMsg.Effects.Connection (Connection, ConnectionHandle (ConnectionHandle), ConnectionInfo (ConnectionInfo), mkConnection)
@@ -52,7 +52,7 @@ nextConnection sock = do
 ----------------------------------------------------------------------------------------------------------
 
 defaultServerTcpSettings :: ServerTcpSettings
-defaultServerTcpSettings = ServerTcpSettings {port = 4455}
+defaultServerTcpSettings = ServerTcpSettings {port = 44551}
 
 createTcpConnSupplier ::
   ServerTcpSettings ->
@@ -62,6 +62,9 @@ createTcpConnSupplier
   =
     do
       socket <- createServerSocket serverSettings
-      return (ConnectionSupplier {supplyConn = nextConnection socket})
+      return (ConnectionSupplier {
+        supplyConn = nextConnection socket,
+        finalize = Net.gracefulClose socket 2000
+        })
 
 ----------------------------------------------------------------------------------------------------------

@@ -10,16 +10,17 @@
 {-# LANGUAGE TypeOperators #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 
-
 module TcpMsg.Effects.Supplier where
-
 
 import Control.Concurrent (forkIO)
 import Control.Monad (forever, void)
 import Data.Void (Void)
 import TcpMsg.Effects.Connection (Connection)
 
-newtype ConnectionSupplier c = ConnectionSupplier {supplyConn :: IO (Connection c)}
+data ConnectionSupplier c = ConnectionSupplier
+  { supplyConn :: IO (Connection c),
+    finalize :: IO ()
+  }
 
 nextConnection :: ConnectionSupplier c -> IO (Connection c)
 nextConnection = supplyConn

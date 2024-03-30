@@ -66,7 +66,7 @@ readBytes ::
   Connection c ->
   Int ->
   IO BS.StrictByteString
-readBytes (Connection {cread}) = cread
+readBytes = cread
 
 writeBytes ::
   forall c.

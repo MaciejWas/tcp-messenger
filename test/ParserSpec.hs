@@ -112,50 +112,68 @@ connectionWhichYieldsAndLimitsBytes messages =
 --------------------------------------------------------------------------------------------------------------------------------------------------------
 
 parserSpec = do
-  describe "TcpMsg" $ do
-    describe "Data" $ do
-      describe "encodeMsg" $ do
-        it "creates a message which contains the payload" $ do
-          property $ \(messageId :: UnixMsgTime) (payload :: BS.ByteString) -> BS.isInfixOf payload (encodeMsg messageId (Message payload Nothing))
+  describe "Data" $ do
+    describe "encodeMsg" $ do
+      it "creates a message which contains the payload" $ do
+        property $ \(messageId :: UnixMsgTime) (payload :: BS.ByteString) -> BS.isInfixOf payload (encodeMsg messageId (Message payload Nothing))
 
-    describe "Parsing" $ do
-      describe "parseHeader" $ do
-        it "parses message id" $ do
-          property $ \(messageId :: UnixMsgTime) (payload :: BS.ByteString) -> monadicIO $ do
-            (Header responseMsgId _ _) <- run (connectionWhichYields [(messageId, Message payload Nothing)] >>= parseHeader)
-            assert (responseMsgId == messageId)
+  describe "Parsing" $ do
+    describe "parseHeader" $ do
+      it "parses message id" $ do
+        property $ \(messageId :: UnixMsgTime) (payload :: BS.ByteString) -> monadicIO $ do
+          (Header responseMsgId _ _) <- run (connectionWhichYields [(messageId, Message payload Nothing)] >>= parseHeader)
+          assert (responseMsgId == messageId)
 
-        it "parses message size" $ do
-          property $ \(messageId :: UnixMsgTime) (payload :: BS.ByteString) -> monadicIO $ do
-            (Header _ sizeOfData _) <- run (connectionWhichYields [(messageId, Message payload Nothing)] >>= parseHeader)
-            assert (sizeOfData >= BS.length payload)
+      it "parses message size" $ do
+        property $ \(messageId :: UnixMsgTime) (payload :: BS.ByteString) -> monadicIO $ do
+          (Header _ sizeOfData _) <- run (connectionWhichYields [(messageId, Message payload Nothing)] >>= parseHeader)
+          assert (sizeOfData >= BS.length payload)
 
-        it "parses trunk size" $ do
-          property $ \(messageId :: UnixMsgTime) (trunk :: Maybe LBS.ByteString) -> monadicIO $ do
-            (Header _ _ sizeOfTrunk) <- run (connectionWhichYields [(messageId, Message () trunk)] >>= parseHeader)
-            case trunk of
-              Nothing -> assert (sizeOfTrunk == 0)
-              Just x -> assert (sizeOfTrunk == LBS.length x)
+      it "parses trunk size" $ do
+        property $ \(messageId :: UnixMsgTime) (trunk :: Maybe LBS.ByteString) -> monadicIO $ do
+          (Header _ _ sizeOfTrunk) <- run (connectionWhichYields [(messageId, Message () trunk)] >>= parseHeader)
+          case trunk of
+            Nothing -> assert (sizeOfTrunk == 0)
+            Just x -> assert (sizeOfTrunk == LBS.length x)
 
-      describe "parseMsg" $ do
-        it "parses message body (bytestring)" $ do
-          property $ \(messageId :: UnixMsgTime) (payload :: BS.ByteString) -> monadicIO $ do
-            (_, Message body trunk) <- run (connectionWhichYields [(messageId, Message payload Nothing)] >>= parseMsg)
-            assert (body == payload)
+    describe "parseMsg" $ do
+      it "parses message body (bytestring)" $ do
+        property $ \(messageId :: UnixMsgTime) (payload :: BS.ByteString) -> monadicIO $ do
+          (_, Message body trunk) <- run (connectionWhichYields [(messageId, Message payload Nothing)] >>= parseMsg)
+          assert (body == payload)
 
-        it "parses message body (int)" $ do
-          property $ \(messageId :: UnixMsgTime) (payload :: Int) -> monadicIO $ do
-            (_, Message body trunk) <- run (connectionWhichYields [(messageId, Message payload Nothing)] >>= parseMsg)
-            assert (body == payload)
+      it "parses message body (int)" $ do
+        property $ \(messageId :: UnixMsgTime) (payload :: Int) -> monadicIO $ do
+          (_, Message body trunk) <- run (connectionWhichYields [(messageId, Message payload Nothing)] >>= parseMsg)
+          assert (body == payload)
 
+      it "parses message body (tuple)" $ do
+        property $ \(messageId :: UnixMsgTime) (payload :: (String, Int, ())) -> monadicIO $ do
+          (_, Message body trunk) <- run (connectionWhichYields [(messageId, Message payload Nothing)] >>= parseMsg)
+          assert (body == payload)
+
+      it "parses message body (list of tuples)" $ do
+        property $ \(messageId :: UnixMsgTime) (payload :: [(String, Int, ())]) -> monadicIO $ do
+          (_, Message body trunk) <- run (connectionWhichYields [(messageId, Message payload Nothing)] >>= parseMsg)
+          assert (body == payload)
+
+      it "parses many messages" $ do
+        property $ \(messageId :: UnixMsgTime) (payloads :: [(String, Int, Bool)]) -> monadicIO $ do
+          unless (null payloads) $ do
+            let messages = map (\p -> (messageId, Message p Nothing)) payloads
+            received <-
+              run
+                ( connectionWhichYields messages
+                    >>= \conn -> replicateM (length payloads) (parseMsg conn)
+                )
+            mapM_
+              (\(payload, (Header _ _ _, Message body trunk)) -> assert (body == payload))
+              (zip payloads received)
+
+      describe "when connection is limited" $ do
         it "parses message body (tuple)" $ do
           property $ \(messageId :: UnixMsgTime) (payload :: (String, Int, ())) -> monadicIO $ do
-            (_, Message body trunk) <- run (connectionWhichYields [(messageId, Message payload Nothing)] >>= parseMsg)
-            assert (body == payload)
-
-        it "parses message body (list of tuples)" $ do
-          property $ \(messageId :: UnixMsgTime) (payload :: [(String, Int, ())]) -> monadicIO $ do
-            (_, Message body trunk) <- run (connectionWhichYields [(messageId, Message payload Nothing)] >>= parseMsg)
+            (_, Message body trunk) <- run (connectionWhichYieldsAndLimitsBytes [(messageId, Message payload Nothing)] >>= parseMsg)
             assert (body == payload)
 
         it "parses many messages" $ do
@@ -164,23 +182,9 @@ parserSpec = do
               let messages = map (\p -> (messageId, Message p Nothing)) payloads
               received <-
                 run
-                  ( connectionWhichYields messages
+                  ( connectionWhichYieldsAndLimitsBytes messages
                       >>= \conn -> replicateM (length payloads) (parseMsg conn)
                   )
               mapM_
                 (\(payload, (Header _ _ _, Message body trunk)) -> assert (body == payload))
                 (zip payloads received)
-
-        describe "when connection is limited" $ do
-          it "parses many messages" $ do
-            property $ \(messageId :: UnixMsgTime) (payloads :: [(String, Int, Bool)]) -> monadicIO $ do
-              unless (null payloads) $ do
-                let messages = map (\p -> (messageId, Message p Nothing)) payloads
-                received <-
-                  run
-                    ( connectionWhichYieldsAndLimitsBytes messages
-                        >>= \conn -> replicateM (length payloads) (parseMsg conn)
-                    )
-                mapM_
-                  (\(payload, (Header _ _ _, Message body trunk)) -> assert (body == payload))
-                  (zip payloads received)
