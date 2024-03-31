@@ -49,7 +49,7 @@ data Header
       UnixMsgTime
       Int -- Size of message data
       Int64 -- Size of message trunk
-  deriving (Show, Eq, Generic)
+  deriving (Generic)
 
 instance Serialize Header
 
@@ -64,6 +64,8 @@ encodeHeader :: Header -> BS.ByteString
 encodeHeader header =
   let encodedHeader = encode header
    in encodedHeader <> BS.replicate (headersize - BS.length encodedHeader) 0
+
+----------------------------------------------------------------------------------------------------------
 
 -- | Adds a header to a message and serializes it all
 encodeMsg ::

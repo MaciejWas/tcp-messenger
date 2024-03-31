@@ -5,7 +5,7 @@ import Data.ByteString.Lazy (LazyByteString, toStrict)
 import qualified Data.ByteString.Lazy as LBS
 import Data.Serialize (Serialize, decode)
 import TcpMsg.Data (Header (Header), Message (Message), headersize)
-import TcpMsg.Effects.Connection (Connection, readBytes)
+import TcpMsg.Connection (Connection, readBytes)
 
 parseMsg ::
   (Serialize a) => Connection c -> IO (Header, Message a)

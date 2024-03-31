@@ -11,7 +11,7 @@ import qualified Data.ByteString.Lazy as LBS
 import Data.Maybe (fromMaybe)
 import Data.Serialize (Serialize)
 import TcpMsg.Data (Header (Header), Message (Message), UnixMsgTime, encodeMsg)
-import TcpMsg.Effects.Connection
+import TcpMsg.Connection
   ( Connection (..),
     ConnectionHandle (ConnectionHandle),
     ConnectionHandleRef,

@@ -1,7 +1,7 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module TcpMsg.Effects.Connection where
+module TcpMsg.Connection where
 
 import Control.Concurrent (MVar, newMVar, withMVar)
 import Control.Concurrent.STM.TVar (TVar)
@@ -38,7 +38,7 @@ data Connection a
   = Connection
   { chandle :: ConnectionHandleRef a, -- Metadata about the connection
     cwriterMutex :: WriterMutex, -- So that only one thread can be writing to a connection on a given time
-    cread :: ConnectionRead a, -- Interface for receiving bytes
+    readBytes :: ConnectionRead a, -- Interface for receiving bytes
     cwrite :: ConnectionWrite a -- Interface for sending bytes
   }
 
@@ -50,12 +50,6 @@ mkConnection ::
 mkConnection handle connread connwrite = do
   writerLock <- newMVar ()
   return (Connection handle writerLock connread connwrite)
-
-readBytes ::
-  Connection c ->
-  Int ->
-  IO BS.StrictByteString
-readBytes = cread
 
 writeBytes ::
   Connection c ->

@@ -1,5 +1,9 @@
 {-# LANGUAGE NamedFieldPuns #-}
-module TcpMsg.Client.Abstract where
+module TcpMsg.Client.Abstract (
+  Client(..),
+  ask,
+  createClient
+) where
 import Control.Concurrent (ThreadId, forkIO)
 
 import qualified Control.Concurrent.STM as STM
@@ -8,11 +12,10 @@ import Data.Serialize (Serialize)
 
 import qualified StmContainers.Map as M
 import TcpMsg.Data (Header (Header), Message, UnixMsgTime, fromUnix)
-import TcpMsg.Effects.Connection (Connection, sendMessage)
+import TcpMsg.Connection (Connection, sendMessage)
 import TcpMsg.Parsing (parseMsg)
 import Control.Concurrent.STM (atomically)
 import qualified Data.Text as T
-import qualified Network.Socket as Net
 import Control.Concurrent.Async (Async, async)
 import Data.UnixTime (getUnixTime)
 
@@ -23,29 +26,27 @@ type MessageMap response =
     UnixMsgTime
     (STM.TMVar (Message response))
 
+----------------------------------------------------------------------------------------------------------
+
 data Client a b c = Client
   { clientName :: T.Text,
-    msgs :: STM.TVar (MessageMap b),
+    pendingMessages :: STM.TVar (MessageMap b),
     worker :: ThreadId,
     connection :: Connection c
   }
-
-type TcpClient a b = Client a b Net.Socket
 
 ----------------------------------------------------------------------------------------------------------
 
 newMessageId :: IO UnixMsgTime
 newMessageId = fromUnix <$> getUnixTime
 
--- Get a map of pending messages
-pendingMessages :: Client a b c -> STM.TVar (MessageMap b)
-pendingMessages = msgs
+----------------------------------------------------------------------------------------------------------
 
 blockingWaitForResponse :: Client a b c -> UnixMsgTime -> IO (Message b)
 blockingWaitForResponse client unixTime = do
   atomically
     ( do
-        msgs_ <- STM.readTVar (msgs client)
+        msgs_ <- STM.readTVar (pendingMessages client)
         response <- M.lookup unixTime msgs_
         case response of
           Just r -> M.delete unixTime msgs_ >> STM.takeTMVar r
@@ -63,6 +64,8 @@ blockingWaitForResponse client unixTime = do
         M.insert v msgTime msgs
         return v
 
+----------------------------------------------------------------------------------------------------------
+
 ask ::
   (Serialize a) =>
   Client a b c ->
@@ -78,6 +81,18 @@ ask client@Client {connection} msg = sendRequest >>= (async . blockingWaitForRes
 
 ----------------------------------------------------------------------------------------------------------
 
+{-# INLINE insertMessage #-}
+insertMessage :: MessageMap b -> UnixMsgTime -> STM.TMVar (Message b) -> STM.STM ()
+insertMessage msgmap msgTime newMessage = M.insert newMessage msgTime msgmap
+
+----------------------------------------------------------------------------------------------------------
+
+{-# INLINE findPendingMessage #-}
+findPendingMessage :: MessageMap b -> UnixMsgTime -> STM.STM (Maybe (STM.TMVar (Message b)))
+findPendingMessage msgmap msgTime = M.lookup msgTime msgmap
+
+----------------------------------------------------------------------------------------------------------
+
 notifyMessage ::
   STM.TVar (MessageMap b) ->
   (Header, Message b) ->
@@ -85,16 +100,14 @@ notifyMessage ::
 notifyMessage msgs (Header msgTime _ _, newMsg) =
   atomically
     ( do
-        msgs_ <- STM.readTVar msgs
-        currVar <- M.lookup msgTime msgs_
+        messageMap <- STM.readTVar msgs
+        currVar <- findPendingMessage messageMap msgTime
         case currVar of
-          Nothing ->
-            ( do
-                responseMVar <- STM.newTMVar newMsg
-                M.insert responseMVar msgTime msgs_ 
-            )
+          Nothing -> STM.newTMVar newMsg >>= insertMessage messageMap msgTime
           Just mvar -> STM.putTMVar mvar newMsg
     )
+
+----------------------------------------------------------------------------------------------------------
 
 startWorker ::
   ( Serialize b) =>
@@ -107,6 +120,8 @@ startWorker conn msgs =
   where
     readNextMessage = parseMsg conn
     notifyMessageReceived = notifyMessage msgs
+
+----------------------------------------------------------------------------------------------------------
 
 createClient ::
   ( Serialize b

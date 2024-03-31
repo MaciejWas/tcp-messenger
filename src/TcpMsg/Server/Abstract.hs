@@ -1,14 +1,39 @@
-module TcpMsg.Server.Abstract where
+module TcpMsg.Server.Abstract
+  ( ConnectionSupplier (ConnectionSupplier, nextConnection, finalize),
+    eachConnectionDo,
+    eachRequestDo,
+    runServer,
+  )
+where
 
+import Control.Concurrent (forkIO)
+import qualified Control.Exception as Exception
 import Control.Monad (forever, void)
 import Data.Serialize (Serialize)
-import TcpMsg.Data (Header (Header), Message, headersize)
-import TcpMsg.Effects.Connection (Connection, readBytes, sendMessage)
-import TcpMsg.Effects.Supplier (ConnectionSupplier (finalize), eachConnectionDo)
-import TcpMsg.Parsing (parseMsg)
-import Control.Concurrent (forkIO)
 import Data.Void (Void)
-import qualified Control.Exception as E
+import TcpMsg.Connection (Connection, sendMessage)
+import TcpMsg.Data (Header (Header), Message)
+import TcpMsg.Parsing (parseMsg)
+
+----------------------------------------------------------------------------------------------------------
+
+data ConnectionSupplier c = ConnectionSupplier
+  { nextConnection :: IO (Connection c),
+    finalize :: IO ()
+  }
+
+eachConnectionDo ::
+  ConnectionSupplier c ->
+  (Connection c -> IO ()) ->
+  IO Void
+eachConnectionDo supplier action =
+  forever
+    ( do
+        conn <- nextConnection supplier
+        void (forkIO (action conn))
+    )
+
+----------------------------------------------------------------------------------------------------------
 
 eachRequestDo ::
   ( Serialize a,
@@ -34,12 +59,12 @@ runServer ::
   (Message a -> IO (Message b)) ->
   IO Void
 runServer supplier respond =
-  E.finally
-    (eachConnectionDo
-      supplier
-      (`eachRequestDo` respond))
+  Exception.finally
+    ( eachConnectionDo
+        supplier
+        (`eachRequestDo` respond)
+    )
     (finalize supplier)
-
 
 inParallel :: IO () -> IO ()
 inParallel = void . forkIO

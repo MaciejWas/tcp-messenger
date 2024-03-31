@@ -13,7 +13,7 @@ import qualified Network.Socket as Net
     openSocket,
   )
 import qualified Network.Socket.ByteString as Net
-import TcpMsg.Effects.Connection (Connection, ConnectionHandle (ConnectionHandle), ConnectionInfo (ConnectionInfo), mkConnection)
+import TcpMsg.Connection (Connection, ConnectionHandle (ConnectionHandle), ConnectionInfo (ConnectionInfo), mkConnection)
 import TcpMsg.Network (getAddr)
 
 connectToServer :: ClientOpts -> IO Net.Socket

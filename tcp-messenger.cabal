@@ -29,10 +29,8 @@ library
       TcpMsg.Client.Abstract
       TcpMsg.Client.Tcp
       TcpMsg.Data
-      TcpMsg.Effects.Client
-      TcpMsg.Effects.Connection
-      TcpMsg.Effects.Supplier
       TcpMsg.Network
+      TcpMsg.Connection
       TcpMsg.Parsing
       TcpMsg.Server.Abstract
       TcpMsg.Server.Tcp
