@@ -75,7 +75,6 @@ clientSpec = do
       threadDelay 100
 
     it "can send a single message to a server" $ do
-      responseReceived <- newEmptyMVar
       let request = Message (42 :: Int) Nothing
 
       -- Start a server which responds with x + 1
