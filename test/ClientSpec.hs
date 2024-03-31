@@ -7,11 +7,12 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE NumericUnderscores #-}
 
 module ClientSpec (clientSpec) where
 
 import Control.Concurrent (forkIO, killThread, newEmptyMVar, threadDelay)
-import Control.Concurrent.Async (wait)
+import Control.Concurrent.Async (wait, mapConcurrently)
 import Control.Monad (void, (>=>))
 import Data.Serialize (Serialize)
 import GHC.Generics (Generic)
@@ -24,8 +25,9 @@ import TcpMsg.Server.Tcp (ServerTcpSettings (ServerTcpSettings, port))
 import Test.Hspec
   ( describe,
     it,
-    shouldBe,
+    shouldBe, shouldSatisfy,
   )
+import Data.UnixTime (getUnixTime, UnixTime (UnixTime))
 
 --------------------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -125,5 +127,37 @@ clientSpec = do
       responses <- mapM (ask client >=> wait) requests
 
       responses `shouldBe` map processRequest requests
+
+      killThread tid
+
+  describe "Server" $ do
+    it "processes requests in parallel" $ do
+      let requests = map (\i -> Message (123 :: Int) Nothing) [1..5]
+      let oneSecond = 1_000_000
+
+      -- Start a server which modifies the data
+      tid <-
+        forkIO
+          ( void
+              ( TcpMsg.run @Int @Int
+                  ( ServerSettings
+                      { tcpOpts = ServerTcpSettings {port = 44_551},
+                        action = \m -> threadDelay oneSecond >> return (Message 123 Nothing)
+                      }
+                  )
+              )
+          )
+
+      threadDelay 10_000
+
+      -- Start a client which sends a single request
+      let clientopts = ClientOpts {serverHost = "localhost", serverPort = 44_551}
+      client <- createClient @Int @Int clientopts
+
+      (UnixTime startSecs startMsecs) <- getUnixTime
+      _responses <- mapConcurrently (ask client >=> wait) requests
+      (UnixTime endSecs endMsecs) <- getUnixTime
+      
+      (endSecs - startSecs) `shouldSatisfy` (< 2)
 
       killThread tid
