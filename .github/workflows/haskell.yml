@@ -42,8 +42,11 @@ jobs:
     - name: Run tests
       run: |
         cabal new-test all --test-show-details=streaming --enable-coverage
-        proj=tcp-messenger-0.1.0.0
-        tix=$(find ./dist-newstyle -name $proj.tix)
-        mix=$(find ./dist-newstyle -name vanilla -print -quit)/mix/$proj
-        hpc-codecov --mix=$mix --exclude=Paths_hpc_codecov --out=codecov.json $tix
+        hpc-codecov cabal:tcp-messenger-test -X tcp-messenger -o codecov.json
         bash <(curl -s https://codecov.io/bash)
+
+
+# ./dist-newstyle/build/x86_64-linux/ghc-9.4.8/tcp-messenger-0.1.0.0/t/tcp-messenger-test/hpc/vanilla/mix/tcp-messenger-0.1.0.0/tcp-messenger-0.1.0.0-inplace/TcpMsg.Effects.Supplier.mix
+
+# ./dist-newstyle/build/x86_64-linux/ghc-9.4.8/tcp-messenger-0.1.0.0/hpc/dyn/mix/tcp-messenger-0.1.0.0/tcp-messenger-0.1.0.0-inplace/TcpMsg.Effects.Supplier.mix
+# ./dist-newstyle/build/x86_64-linux/ghc-9.4.8/tcp-messenger-0.1.0.0/hpc/vanilla/mix/tcp-messenger-0.1.0.0/tcp-messenger-0.1.0.0-inplace/TcpMsg.Effects.Supplier.mix
