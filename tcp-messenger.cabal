@@ -1,12 +1,8 @@
 cabal-version: 2.2
 
--- This file has been generated from package.yaml by hpack version 0.36.0.
---
--- see: https://github.com/sol/hpack
-
 name:           tcp-messenger
 version:        0.1.0.0
-description:    Please see the README on GitHub at <https://github.com/githubuser/tcp-messenger#readme>
+description:    A lightweight request-response protocol for Haskell applications
 homepage:       https://github.com/maciejwas/tcp-messenger#readme
 bug-reports:    https://github.com/maciejwas/tcp-messenger/issues
 author:         Maciej Wasilewski
