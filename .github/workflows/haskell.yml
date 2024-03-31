@@ -44,9 +44,3 @@ jobs:
         cabal new-test all --test-show-details=streaming --enable-coverage
         hpc-codecov cabal:tcp-messenger-test -X tcp-messenger -o codecov.json
         bash <(curl -s https://codecov.io/bash)
-
-
-# ./dist-newstyle/build/x86_64-linux/ghc-9.4.8/tcp-messenger-0.1.0.0/t/tcp-messenger-test/hpc/vanilla/mix/tcp-messenger-0.1.0.0/tcp-messenger-0.1.0.0-inplace/TcpMsg.Effects.Supplier.mix
-
-# ./dist-newstyle/build/x86_64-linux/ghc-9.4.8/tcp-messenger-0.1.0.0/hpc/dyn/mix/tcp-messenger-0.1.0.0/tcp-messenger-0.1.0.0-inplace/TcpMsg.Effects.Supplier.mix
-# ./dist-newstyle/build/x86_64-linux/ghc-9.4.8/tcp-messenger-0.1.0.0/hpc/vanilla/mix/tcp-messenger-0.1.0.0/tcp-messenger-0.1.0.0-inplace/TcpMsg.Effects.Supplier.mix
