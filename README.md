@@ -6,7 +6,7 @@
 ## Example
 ```haskell
 -- Requests consist of serializable header and an optional bytestring message
-let request = Message (43 :: Int) (Just "some-additional-data")
+let request = Message (42 :: Int) (Just "some-additional-data")
 
 -- Start a server which responds to `x` with `x + 1`
 tid <-
