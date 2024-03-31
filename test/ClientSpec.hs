@@ -10,45 +10,22 @@
 
 module ClientSpec (clientSpec) where
 
-import Control.Concurrent (MVar, forkIO, isEmptyMVar, killThread, newEmptyMVar, newMVar, putMVar, readMVar, takeMVar, threadDelay)
+import Control.Concurrent (forkIO, killThread, newEmptyMVar, threadDelay)
 import Control.Concurrent.Async (wait)
-import Control.Exception (evaluate)
-import Control.Monad (replicateM, void, (>=>))
-import qualified Control.Monad.Catch as E
-import qualified Data.ByteString as BS
+import Control.Monad (void, (>=>))
 import Data.Serialize (Serialize)
-import qualified Data.Text as T
-import GHC.Base (undefined)
 import GHC.Generics (Generic)
-import Network.Socket (Socket)
 import TcpMsg (ServerSettings (..), createClient, run)
 import TcpMsg.Client.Tcp (ClientOpts (ClientOpts, serverHost, serverPort))
-import TcpMsg.Data (Header (Header), Message (Message), UnixMsgTime, encodeMsg)
-import TcpMsg.Effects.Client (Client (..), ask)
-import TcpMsg.Effects.Connection
-  ( Connection (..),
-    ConnectionHandle (ConnectionHandle),
-    ConnectionHandleRef,
-    ConnectionInfo (ConnectionInfo),
-    mkConnection,
-    readBytes,
-    writeBytes,
-  )
-import TcpMsg.Effects.Supplier (eachConnectionDo, nextConnection)
-import TcpMsg.Parsing (parseHeader, parseMsg)
-import TcpMsg.Server.Abstract (runServer)
-import TcpMsg.Server.Tcp (ServerTcpSettings (ServerTcpSettings, port), defaultServerTcpSettings)
+import TcpMsg.Client.Abstract (ask)
+import TcpMsg.Data (Message (Message))
+
+import TcpMsg.Server.Tcp (ServerTcpSettings (ServerTcpSettings, port))
 import Test.Hspec
-  ( anyException,
-    describe,
-    hspec,
+  ( describe,
     it,
     shouldBe,
-    shouldThrow,
   )
-import Test.QuickCheck (Testable (property))
-import Test.QuickCheck.Instances.ByteString
-import Test.QuickCheck.Monadic (assert, monadicIO)
 
 --------------------------------------------------------------------------------------------------------------------------------------------------------
 

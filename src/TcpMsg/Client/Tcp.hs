@@ -1,28 +1,15 @@
-{-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeOperators #-}
 
 module TcpMsg.Client.Tcp where
 
 import Control.Concurrent.STM (newTVarIO)
-import qualified Control.Monad.Catch as Err
 import qualified Network.Socket as Net
   ( AddrInfo (addrAddress),
     HostName,
     PortNumber,
     Socket,
-    close,
     connect,
-    gracefulClose,
     openSocket,
   )
 import qualified Network.Socket.ByteString as Net

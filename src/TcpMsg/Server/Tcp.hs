@@ -1,15 +1,5 @@
-{-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeOperators #-}
 
 module TcpMsg.Server.Tcp where
 
@@ -18,7 +8,8 @@ import qualified Network.Socket as Net
   ( PortNumber,
     Socket,
     accept,
-    openSocket, close, gracefulClose,
+    openSocket, 
+    gracefulClose,
   )
 import qualified Network.Socket.ByteString as Net
 import TcpMsg.Effects.Connection (Connection, ConnectionHandle (ConnectionHandle), ConnectionInfo (ConnectionInfo), mkConnection)

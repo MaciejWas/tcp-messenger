@@ -1,11 +1,3 @@
-{-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TypeOperators #-}
-
 module TcpMsg.Server.Abstract where
 
 import Control.Monad (forever, void)
@@ -19,7 +11,6 @@ import Data.Void (Void)
 import qualified Control.Exception as E
 
 eachRequestDo ::
-  forall a b c.
   ( Serialize a,
     Serialize b
   ) =>
@@ -36,7 +27,6 @@ eachRequestDo conn respond =
 ----------------------------------------------------------------------------------------------------------
 
 runServer ::
-  forall a b c.
   ( Serialize a,
     Serialize b
   ) =>

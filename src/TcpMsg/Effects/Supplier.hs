@@ -1,15 +1,3 @@
-{-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeOperators #-}
-{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
-
 module TcpMsg.Effects.Supplier where
 
 import Control.Concurrent (forkIO)
@@ -28,7 +16,6 @@ nextConnection = supplyConn
 ----------------------------------------------------------------------------------------------------------
 
 eachConnectionDo ::
-  forall c.
   ConnectionSupplier c ->
   (Connection c -> IO ()) ->
   IO Void

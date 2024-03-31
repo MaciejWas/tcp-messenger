@@ -1,15 +1,5 @@
-{-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE NamedFieldPuns #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeOperators #-}
 
 module TcpMsg.Effects.Connection where
 
@@ -46,10 +36,10 @@ type ConnectionWrite a = BS.StrictByteString -> IO ()
 -- All necessary operations to handle a connection
 data Connection a
   = Connection
-  { chandle :: (ConnectionHandleRef a), -- Metadata about the connection
-    cwriterMutex :: (WriterMutex), -- So that only one thread can be writing to a connection on a given time
-    cread :: (ConnectionRead a), -- Interface for receiving bytes
-    cwrite :: (ConnectionWrite a) -- Interface for sending bytes
+  { chandle :: ConnectionHandleRef a, -- Metadata about the connection
+    cwriterMutex :: WriterMutex, -- So that only one thread can be writing to a connection on a given time
+    cread :: ConnectionRead a, -- Interface for receiving bytes
+    cwrite :: ConnectionWrite a -- Interface for sending bytes
   }
 
 mkConnection ::
@@ -62,14 +52,12 @@ mkConnection handle connread connwrite = do
   return (Connection handle writerLock connread connwrite)
 
 readBytes ::
-  forall c.
   Connection c ->
   Int ->
   IO BS.StrictByteString
 readBytes = cread
 
 writeBytes ::
-  forall c.
   Connection c ->
   BS.StrictByteString ->
   IO ()
@@ -79,7 +67,6 @@ writeBytes (Connection {cwrite, cwriterMutex}) bytes =
     (const (cwrite bytes))
 
 sendMessage ::
-  forall c a.
   (Serialize a) =>
   Connection c ->
   UnixMsgTime ->

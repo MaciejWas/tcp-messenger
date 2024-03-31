@@ -1,57 +1,31 @@
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE NamedFieldPuns #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TypeOperators #-}
 
 module ParserSpec (parserSpec) where
 
-import Control.Concurrent (MVar, newEmptyMVar, newMVar, putMVar, readMVar, takeMVar, threadDelay)
 import Control.Concurrent.STM (STM, atomically)
 import Control.Concurrent.STM.TVar (modifyTVar, newTVarIO, readTVar, writeTVar)
-import Control.Exception (evaluate)
-import Control.Monad (replicateM, unless, void)
+import Control.Monad (replicateM, unless)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
+import Data.Maybe (fromMaybe)
 import Data.Serialize (Serialize)
-import qualified Data.Text as T
-import GHC.Base (undefined)
-import GHC.Generics (Generic)
-import Network.Socket (Socket)
-import System.Socket (receive)
-import TcpMsg.Client.Abstract (createClient)
-import TcpMsg.Client.Tcp (ClientOpts (ClientOpts, serverHost, serverPort))
 import TcpMsg.Data (Header (Header), Message (Message), UnixMsgTime, encodeMsg)
-import TcpMsg.Effects.Client (ask)
 import TcpMsg.Effects.Connection
   ( Connection (..),
     ConnectionHandle (ConnectionHandle),
     ConnectionHandleRef,
     ConnectionInfo (ConnectionInfo),
     mkConnection,
-    readBytes,
-    writeBytes,
   )
-import TcpMsg.Effects.Supplier (eachConnectionDo, nextConnection)
+import Test.QuickCheck.Instances.ByteString ()
 import TcpMsg.Parsing (parseHeader, parseMsg)
-import TcpMsg.Server.Abstract (runServer)
-import TcpMsg.Server.Tcp (ServerTcpSettings (ServerTcpSettings, port), defaultServerTcpSettings)
 import Test.Hspec
-  ( anyException,
-    describe,
-    hspec,
+  ( describe,
     it,
-    shouldBe,
-    shouldThrow,
   )
 import Test.QuickCheck (Testable (property))
-import Test.QuickCheck.Instances.ByteString
 import Test.QuickCheck.Monadic (assert, monadicIO, run)
-import Data.Maybe (fromMaybe)
 
 data MockConnStream
   = MockConnStream
@@ -86,7 +60,6 @@ testConn connHandleRef maxRead = do
           return read
 
 connectionWhichYields ::
-  forall a x.
   (Serialize a) =>
   [(UnixMsgTime, Message a)] ->
   IO (Connection MockConnStream)
@@ -98,7 +71,6 @@ connectionWhichYields messages =
         testConn testHandleRef Nothing
 
 connectionWhichYieldsAndLimitsBytes ::
-  forall a x.
   (Serialize a) =>
   [(UnixMsgTime, Message a)] ->
   IO (Connection MockConnStream)
