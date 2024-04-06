@@ -28,6 +28,7 @@ library
       TcpMsg
       TcpMsg.Client.Abstract
       TcpMsg.Client.Tcp
+      TcpMsg.Peer.Abstract
       TcpMsg.Data
       TcpMsg.Network
       TcpMsg.Connection
@@ -44,6 +45,7 @@ library
   build-depends:
       async
     , base >=4.7 && <5
+    , containers ==0.6.7
     , bytestring ==0.11.5.3
     , cereal ==0.5.8.3
     , exceptions ==0.10.5

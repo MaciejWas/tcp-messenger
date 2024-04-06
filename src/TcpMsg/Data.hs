@@ -58,6 +58,9 @@ data Message a = Message
     msgTrunk :: Maybe LBS.LazyByteString
   } deriving (Show, Eq)
 
+instance Functor Message where
+  fmap f (Message a bs) = Message (f a) bs
+
 ----------------------------------------------------------------------------------------------------------
 
 encodeHeader :: Header -> BS.ByteString
