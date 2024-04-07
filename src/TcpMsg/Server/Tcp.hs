@@ -9,6 +9,8 @@ module TcpMsg.Server.Tcp
 where
 
 import Control.Concurrent.STM.TVar (newTVarIO)
+import Data.Text (pack, Text)
+import Data.Text.Encoding (encodeUtf8)
 import qualified Network.Socket as Net
   ( PortNumber,
     Socket,
@@ -29,6 +31,11 @@ data ServerTcpSettings = ServerTcpSettings
 
 ----------------------------------------------------------------------------------------------------------
 
+showt :: (Show a) => a -> Text
+showt = pack . show
+
+----------------------------------------------------------------------------------------------------------
+
 createServerSocket :: ServerTcpSettings -> IO Net.Socket
 createServerSocket (ServerTcpSettings {port}) = do
   socketAddress <- getAddr "localhost" port
@@ -41,7 +48,12 @@ createServerSocket (ServerTcpSettings {port}) = do
 nextTcpConnection :: Net.Socket -> IO (Connection Net.Socket)
 nextTcpConnection sock = do
   (peerSocket, peerAddr) <- Net.accept sock
-  connRef <- newTVarIO (ConnectionHandle (ConnectionInfo "some conn") peerSocket)
+  connRef <-
+    newTVarIO
+      ( ConnectionHandle
+          (ConnectionInfo (showt peerAddr))
+          peerSocket
+      )
   mkConnection
     connRef
     (Net.recv peerSocket)
