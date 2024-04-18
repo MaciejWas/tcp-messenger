@@ -7,6 +7,7 @@ module TcpMsg.Data
     Message(Message),
     Header (..),
     headersize,
+    serializeMsg,
     encodeMsg,
     fromUnix,
   )
@@ -69,6 +70,14 @@ encodeHeader header =
    in encodedHeader <> BS.replicate (headersize - BS.length encodedHeader) 0
 
 ----------------------------------------------------------------------------------------------------------
+
+serializeMsg :: (Serialize a) => (Header, Message a) -> BS.ByteString
+serializeMsg (header, Message {msgPayload, msgTrunk}) =
+  let payload = encode msgPayload
+      trunk = maybe mempty LBS.toStrict msgTrunk
+   in encodeHeader header
+        <> payload
+        <> trunk
 
 -- | Adds a header to a message and serializes it all
 encodeMsg ::
