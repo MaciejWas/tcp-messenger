@@ -24,7 +24,6 @@ library
       TcpMsg
       TcpMsg.Client.Abstract
       TcpMsg.Client.Tcp
-      TcpMsg.Peer.Abstract
       TcpMsg.Data
       TcpMsg.Network
       TcpMsg.Connection
