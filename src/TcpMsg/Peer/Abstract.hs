@@ -21,8 +21,8 @@ import Data.Serialize (Serialize)
 import Data.UnixTime (getUnixTime)
 import GHC.Generics (Generic)
 import Network.Socket (HostName)
-import TcpMsg.Connection (Connection, sendMessage)
-import TcpMsg.Data (ClientId, Message (Message), UnixMsgTime, fromUnix)
+import TcpMsg.Connection (Connection)
+import TcpMsg.Data (Message (Message), UnixMsgTime, fromUnix)
 import TcpMsg.Parsing (parseMsg)
 
 ----------------------------------------------------------------------------------------------------------

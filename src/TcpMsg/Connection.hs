@@ -4,25 +4,18 @@
 
 module TcpMsg.Connection where
 
-import Control.Concurrent (MVar, newMVar, withMVar, ThreadId)
-import Control.Concurrent.STM.TVar (TVar)
-
+import Control.Concurrent (MVar, ThreadId, newMVar, withMVar, forkIO)
 import qualified Control.Concurrent.STM as STM
-
+import Control.Concurrent.STM.TVar (TVar)
+import Control.Monad (forever)
 import qualified Data.ByteString as BS
 import Data.Serialize (Serialize)
-
-import TcpMsg.Data (ClientId, Message (Message), UnixMsgTime, serializeMsg, Header, addHeader)
+import qualified GHC.IO.Device as STM
+import Network.Socket (Socket)
+import TcpMsg.Data (FullMessage (..), Header, Message (Message), MessageId, UnixMsgTime, msgId, prepare, serializeMsg)
 import TcpMsg.Parsing (parseMsg)
 
-import Network.Socket (Socket)
-import qualified Control.Concurrent.STM as STM
-import Control.Monad (forever)
-import qualified GHC.IO.Device as STM
-
 ----------------------------------------------------------------------------------------------------------
-
-type MessageID = Int
 
 data PeerWorkers = PeerWorkers
   { -- | Thread which sends messages to the peer
@@ -39,69 +32,81 @@ data ConnectionHandle a
 
 type ConnectionHandleRef a = TVar (ConnectionHandle a)
 
-type ConnectionRead a = Int -> IO BS.StrictByteString
+type ConnectionRead = Int -> IO BS.StrictByteString
 
-type ConnectionWrite a = BS.StrictByteString -> IO ()
+type ConnectionWrite = BS.StrictByteString -> IO ()
 
 ----------------------------------------------------------------------------------------------------------
 
 -- All necessary operations to handle a connection
-data Connection a
+data Connection c a b
   = Connection
-  { chandle :: ConnectionHandleRef a, -- Metadata about the connection
-    incoming :: STM.TChan (Header, Message a), -- Incoming messages
-    outgoing :: STM.TChan (Header, Message a) -- Outgoing messages
+  { chandle :: ConnectionHandleRef c, -- Metadata about the connection
+    incoming :: STM.TChan (FullMessage a), -- Incoming messages
+    outgoing :: STM.TChan (FullMessage b) -- Outgoing messages
   }
 
 -- Start connection worker
 startWriter ::
-  ConnectionWrite a ->
-  STM.TChan (Header, Message a) ->
+  ConnectionWrite ->
+  STM.TChan (FullMessage a) ->
   IO ()
 startWriter connWrite outgoingChan = do
   forever ((STM.atomically . STM.readTChan) outgoingChan >>= (connWrite . serializeMsg))
 
 startReader ::
   forall a.
-  ConnectionRead a ->
-  STM.TChan (Header, Message a) ->
+  (Serialize a) =>
+  ConnectionRead ->
+  STM.TChan (FullMessage a) ->
   IO ()
 startReader connRead incomingChan = do
   forever (parseMsg @a connRead >>= STM.atomically . STM.writeTChan incomingChan)
 
 mkConnection ::
-  ConnectionHandleRef a ->
-  ConnectionRead a ->
-  ConnectionWrite a ->
-  IO (Connection a)
-mkConnection handle connread connwrite = do
+  forall a b c.
+  (Serialize a) =>
+  c ->
+  ConnectionRead ->
+  ConnectionWrite ->
+  IO (Connection c a b)
+mkConnection conn connread connwrite = do
   outgoingWriter <- STM.newBroadcastTChanIO
   incomingWriter <- STM.newBroadcastTChanIO
-  incomingReader <- STM.atomically $ STM.dupTChan incomingWriter
 
-  startWriter connwrite outgoingWriter
-  startReader connread incomingWriter
+  -- \| Duplicate channel the because `outgoingWriter` is write-only
+  outgoingWriter' <- STM.atomically $ STM.dupTChan outgoingWriter
 
-  return (Connection handle incomingReader outgoingWriter)
+  writerThread <- forkIO (startWriter @b connwrite outgoingWriter')
+  readerThread <- forkIO (startReader @a connread incomingWriter)
 
+  handle <- STM.atomically $ STM.newTVar (ConnectionHandle (PeerWorkers writerThread readerThread) conn)
 
-nextMessage :: Connection a -> IO (Header, Message a)
+  return (Connection handle incomingWriter outgoingWriter')
+
+-- | Read the message from the connection
+-- If there is no message, the function will block
+nextMessage :: Connection c a b  -> IO (FullMessage a)
 nextMessage Connection {incoming} = STM.atomically $ STM.readTChan incoming
 
-dispatchMessage :: Connection a -> Message a -> IO UnixMsgTime
+-- | Write the message to the connection
+-- The message will not be sent immediately, but rather put into the outgoing queue
+dispatchMessage :: (Serialize b) => Connection c a b -> Message b -> IO MessageId
 dispatchMessage Connection {outgoing} msg = do
-  time <- newMessageId
-  let header = addHeader time msg
-  STM.atomically $ STM.writeTChan outgoing 
-  
+  fullMessage <- prepare msg
+  STM.atomically $ STM.writeTChan outgoing fullMessage
+  return (msgId fullMessage)
 
-sendMessage ::
-  (Serialize a) =>
-  Connection c ->
-  UnixMsgTime ->
-  Message a ->
+reply ::
+  forall a b c.
+  ( Serialize b ) =>
+  Connection c a b ->
+  (Message a -> IO (Message b)) ->
   IO ()
-sendMessage c messageId message = writeBytes c (encodeMsg messageId message)
-
-newMessageId :: IO UnixMsgTime
-newMessageId = fromUnix <$> getUnixTime
+reply conn@Connection{incoming} respond = do
+  incoming' <- STM.atomically $ STM.dupTChan incoming
+  forever (do
+    FullMessage _ msg _ <- STM.atomically $ STM.readTChan incoming'
+    response <- respond msg
+    dispatchMessage conn response 
+    )

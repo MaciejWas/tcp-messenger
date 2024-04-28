@@ -12,7 +12,7 @@ import Data.Serialize (Serialize)
 
 import qualified StmContainers.Map as M
 import TcpMsg.Data (Header (Header), Message, UnixMsgTime, fromUnix)
-import TcpMsg.Connection (Connection, sendMessage)
+import TcpMsg.Connection (Connection, dispatchMessage)
 import TcpMsg.Parsing (parseMsg)
 import Control.Concurrent.STM (atomically)
 import qualified Data.Text as T

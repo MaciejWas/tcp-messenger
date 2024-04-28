@@ -1,5 +1,8 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 module TcpMsg.Server.Tcp
   ( ServerTcpSettings (..),
@@ -19,9 +22,10 @@ import qualified Network.Socket as Net
     openSocket,
   )
 import qualified Network.Socket.ByteString as Net
-import TcpMsg.Connection (Connection, ConnectionHandle (ConnectionHandle), ConnectionInfo (ConnectionInfo), mkConnection)
+import TcpMsg.Connection (Connection, ConnectionHandle (ConnectionHandle), mkConnection)
 import TcpMsg.Network (getAddr, startListening)
 import TcpMsg.Server.Abstract (ConnectionSupplier (ConnectionSupplier, finalize, nextConnection))
+import Data.Serialize (Serialize)
 
 ----------------------------------------------------------------------------------------------------------
 
@@ -45,17 +49,11 @@ createServerSocket (ServerTcpSettings {port}) = do
 
 ----------------------------------------------------------------------------------------------------------
 
-nextTcpConnection :: Net.Socket -> IO (Connection Net.Socket)
+nextTcpConnection :: forall a b. (Serialize a, Serialize b) => Net.Socket -> IO (Connection Net.Socket a b)
 nextTcpConnection sock = do
   (peerSocket, peerAddr) <- Net.accept sock
-  connRef <-
-    newTVarIO
-      ( ConnectionHandle
-          (ConnectionInfo (showt peerAddr))
-          peerSocket
-      )
   mkConnection
-    connRef
+    sock
     (Net.recv peerSocket)
     (Net.sendAll peerSocket)
 
@@ -67,15 +65,17 @@ defaultServerTcpSettings = ServerTcpSettings {port = 44551}
 ----------------------------------------------------------------------------------------------------------
 
 createTcpConnSupplier ::
+  forall a b c.
+  (Serialize a, Serialize b) =>
   ServerTcpSettings ->
-  IO (ConnectionSupplier Net.Socket)
+  IO (ConnectionSupplier Net.Socket a b)
 createTcpConnSupplier
   serverSettings =
     do
       socket <- createServerSocket serverSettings
       return
         ( ConnectionSupplier
-            { nextConnection = nextTcpConnection socket,
+            { nextConnection = nextTcpConnection @a @b socket,
               finalize = Net.gracefulClose socket 2000
             }
         )

@@ -4,17 +4,17 @@ import qualified Data.ByteString as BS
 import Data.ByteString.Lazy (LazyByteString, toStrict)
 import qualified Data.ByteString.Lazy as LBS
 import Data.Serialize (Serialize, decode)
-import TcpMsg.Data (Header (Header), Message (Message), headersize)
+import TcpMsg.Data (Header (Header), Message (Message), headersize, FullMessage (FullMessage))
 
 type BytesSupplier = Int -> IO BS.ByteString
 
 parseMsg ::
-  (Serialize a) => BytesSupplier -> IO (Header, Message a)
+  (Serialize a) => BytesSupplier -> IO (FullMessage a)
 parseMsg conn = do
   header <- parseHeader conn
   payload <- parsePayload conn header
   trunk <- parseTrunk conn header
-  return (header, Message payload trunk)
+  return (FullMessage header (Message payload trunk) mempty)
 
 parseHeader :: BytesSupplier -> IO Header
 parseHeader conn = parse conn headersize
@@ -38,11 +38,11 @@ parse conn n = do
 
 buffer :: BytesSupplier -> LazyByteString -> Int -> IO BS.ByteString
 buffer readBytes currBuffer remainingBytes = do
-  newBytes <- remainingBytes
+  newBytes <- readBytes remainingBytes
   let bytesInLastMessage = BS.length newBytes
   if bytesInLastMessage == remainingBytes
     then return (toStrict currBuffer <> newBytes)
     else
       let updatedBuffer = currBuffer <> BS.fromStrict newBytes
           updatedRemaining = remainingBytes - bytesInLastMessage
-       in buffer conn updatedBuffer updatedRemaining
+       in buffer readBytes updatedBuffer updatedRemaining

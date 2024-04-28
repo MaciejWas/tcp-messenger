@@ -1,7 +1,9 @@
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 module TcpMsg.Server.Abstract
   ( ConnectionSupplier (ConnectionSupplier, nextConnection, finalize),
     eachConnectionDo,
-    eachRequestDo,
     runServer,
   )
 where
@@ -11,20 +13,19 @@ import qualified Control.Exception as Exception
 import Control.Monad (forever, void)
 import Data.Serialize (Serialize)
 import Data.Void (Void)
-import TcpMsg.Connection (Connection, sendMessage)
-import TcpMsg.Data (Header (Header), Message)
-import TcpMsg.Parsing (parseMsg)
+import TcpMsg.Connection (Connection, reply)
+import TcpMsg.Data (Message)
 
 ----------------------------------------------------------------------------------------------------------
 
-data ConnectionSupplier c = ConnectionSupplier
-  { nextConnection :: IO (Connection c),
+data ConnectionSupplier c a b = ConnectionSupplier
+  { nextConnection :: IO (Connection c a b),
     finalize :: IO ()
   }
 
 eachConnectionDo ::
-  ConnectionSupplier c ->
-  (Connection c -> IO ()) ->
+  ConnectionSupplier c a b->
+  (Connection c a b -> IO ()) ->
   IO Void
 eachConnectionDo supplier action =
   forever
@@ -35,36 +36,16 @@ eachConnectionDo supplier action =
 
 ----------------------------------------------------------------------------------------------------------
 
-eachRequestDo ::
-  ( Serialize a,
-    Serialize b
-  ) =>
-  Connection c ->
-  (Message a -> IO (Message b)) ->
-  IO ()
-eachRequestDo conn respond =
-  forever
-    ( do
-        (Header messageId _ _, msg) <- parseMsg conn
-        inParallel (respond msg >>= conn `sendMessage` messageId)
-    )
-
-----------------------------------------------------------------------------------------------------------
-
 runServer ::
-  ( Serialize a,
-    Serialize b
-  ) =>
-  ConnectionSupplier c ->
+  forall a b c.
+  ( Serialize a, Serialize b ) =>
+  ConnectionSupplier c a b ->
   (Message a -> IO (Message b)) ->
   IO Void
 runServer supplier respond =
   Exception.finally
     ( eachConnectionDo
         supplier
-        (`eachRequestDo` respond)
+        (\conn -> reply @a @b conn respond)
     )
     (finalize supplier)
-
-inParallel :: IO () -> IO ()
-inParallel = void . forkIO
