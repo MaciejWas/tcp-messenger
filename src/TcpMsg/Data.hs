@@ -2,21 +2,28 @@
 {-# LANGUAGE NamedFieldPuns #-}
 
 module TcpMsg.Data
-  ( ClientId,
-    UnixMsgTime,
-    Message(Message),
+  ( UnixMsgTime,
+    MessageId(..),
+    Message (Message),
+    FullMessage (..),
     Header (..),
     headersize,
-    encodeMsg,
+    serializeMsg,
     fromUnix,
+    prepare,
+    prepareWithId,
+    msgId,
+    setId,
+    newMessageId,
   )
 where
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
+import Data.Functor ((<&>))
+import Data.Hashable (Hashable)
 import Data.Serialize (Serialize, encode)
-import qualified Data.Text as T
-import Data.UnixTime (UnixTime (UnixTime))
+import Data.UnixTime (UnixTime (UnixTime), getUnixTime)
 import Foreign.C (CTime (CTime))
 import GHC.Generics (Generic)
 import GHC.Int (Int32, Int64)
@@ -35,31 +42,86 @@ headersize = 32
 
 ----------------------------------------------------------------------------------------------------------
 
-type ClientId = T.Text
-
+-- | Unix time in seconds and milliseconds
 type UnixMsgTime = (Int64, Int32)
+
+-- | Message id is a Unix time of the message creation (not the time of the message sending)
+newtype MessageId = MessageId UnixMsgTime deriving (Generic, Show, Eq)
+
+instance Hashable MessageId
+
+instance Serialize MessageId
 
 fromUnix :: UnixTime -> UnixMsgTime
 fromUnix (UnixTime (CTime secs) msecs) = (secs, msecs)
 
+newMessageId :: IO MessageId
+newMessageId = getUnixTime <&> (MessageId . fromUnix)
+
 ----------------------------------------------------------------------------------------------------------
 
-data Header
-  = Header
-      UnixMsgTime
-      Int -- Size of message data
-      Int64 -- Size of message trunk
-  deriving (Generic)
+data Header = Header
+  { hMsgId :: MessageId,
+    hPayloadSize :: Int, -- Size of message data
+    hTrunkSize :: Int64 -- Size of message trunk
+  }
+  deriving (Generic, Show, Eq)
 
 instance Serialize Header
+
+----------------------------------------------------------------------------------------------------------
 
 data Message a = Message
   { msgPayload :: a,
     msgTrunk :: Maybe LBS.LazyByteString
-  } deriving (Show, Eq)
+  }
+
+data FullMessage a = FullMessage
+  { msgHeader :: Header,
+    msg :: Message a,
+    payload :: BS.ByteString
+  }
+  deriving (Show, Eq)
+
+----------------------------------------------------------------------------------------------------------
+
+instance (Show a) => Show (Message a) where
+  show (Message {msgPayload}) = "Message < " ++ (show msgPayload) ++ ">"
+
+instance (Eq a) => Eq (Message a) where
+  (==) msga msgb = (==) (msgPayload msga) (msgPayload msgb)
 
 instance Functor Message where
   fmap f (Message a bs) = Message (f a) bs
+
+----------------------------------------------------------------------------------------------------------
+
+prepare :: (Serialize a) => Message a -> IO (FullMessage a)
+prepare msg@(Message {msgPayload, msgTrunk}) = do
+  msgId <- newMessageId
+  let bytes = encode msgPayload
+  return
+    ( FullMessage
+        ( Header
+            msgId
+            (BS.length bytes)
+            (maybe 0 LBS.length msgTrunk)
+        )
+        msg
+        (encode msgPayload)
+    )
+
+prepareWithId :: (Serialize a) => MessageId -> Message a -> FullMessage a
+prepareWithId mid msg@(Message {msgPayload, msgTrunk}) =
+  let bytes = encode msgPayload
+   in FullMessage
+        ( Header
+            mid
+            (BS.length bytes)
+            (maybe 0 LBS.length msgTrunk)
+        )
+        msg
+        (encode msgPayload)
 
 ----------------------------------------------------------------------------------------------------------
 
@@ -70,20 +132,21 @@ encodeHeader header =
 
 ----------------------------------------------------------------------------------------------------------
 
--- | Adds a header to a message and serializes it all
-encodeMsg ::
-  (Serialize a) =>
-  UnixMsgTime ->
-  Message a ->
-  BS.StrictByteString
-encodeMsg (secs, msecs) (Message {msgPayload, msgTrunk}) =
-  let payload = encode msgPayload
-      trunk = maybe mempty LBS.toStrict msgTrunk
-      header =
-        Header
-          (secs, msecs)
-          (BS.length payload)
-          (maybe 0 LBS.length msgTrunk)
-   in encodeHeader header
-        <> payload
-        <> trunk
+-- | Check if the message is already serialized, if not, serialize it
+serializeMsg :: FullMessage a -> BS.ByteString
+serializeMsg (FullMessage header (Message {msgTrunk}) payload) = do
+  let trunk = maybe mempty LBS.toStrict msgTrunk
+   in ( encodeHeader header
+          <> payload
+          <> trunk
+      )
+
+----------------------------------------------------------------------------------------------------------
+
+msgId :: FullMessage a -> MessageId
+msgId m = let (Header msgIdVal _ _) = msgHeader m in msgIdVal
+
+setId :: MessageId -> FullMessage a -> FullMessage a
+setId newId message =
+  let newHeader = (msgHeader message) {hMsgId = newId}
+   in message {msgHeader = newHeader}

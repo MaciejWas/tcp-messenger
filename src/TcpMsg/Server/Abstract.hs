@@ -1,3 +1,4 @@
+{-# LANGUAGE NamedFieldPuns #-}
 module TcpMsg.Server.Abstract
   ( ConnectionSupplier (ConnectionSupplier, nextConnection, finalize),
     eachConnectionDo,
@@ -11,8 +12,8 @@ import qualified Control.Exception as Exception
 import Control.Monad (forever, void)
 import Data.Serialize (Serialize)
 import Data.Void (Void)
-import TcpMsg.Connection (Connection, sendMessage)
-import TcpMsg.Data (Header (Header), Message)
+import TcpMsg.Connection (Connection, sendMessage, sendMessageWithId)
+import TcpMsg.Data (Header (Header, hMsgId), Message, FullMessage (FullMessage, msgHeader, msg))
 import TcpMsg.Parsing (parseMsg)
 
 ----------------------------------------------------------------------------------------------------------
@@ -45,8 +46,8 @@ eachRequestDo ::
 eachRequestDo conn respond =
   forever
     ( do
-        (Header messageId _ _, msg) <- parseMsg conn
-        inParallel (respond msg >>= conn `sendMessage` messageId)
+        (FullMessage{msgHeader=(Header {hMsgId}), msg}) <- parseMsg conn
+        inParallel (respond msg >>= \r -> sendMessageWithId conn r hMsgId)
     )
 
 ----------------------------------------------------------------------------------------------------------

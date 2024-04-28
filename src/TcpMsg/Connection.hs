@@ -4,52 +4,45 @@
 module TcpMsg.Connection where
 
 import Control.Concurrent (MVar, newMVar, withMVar)
-import Control.Concurrent.STM.TVar (TVar)
+import Control.Concurrent.STM.TVar (TVar, newTVarIO)
 import qualified Data.ByteString as BS
 import Data.Serialize (Serialize)
-
-import TcpMsg.Data (ClientId, Message, UnixMsgTime, encodeMsg)
+import TcpMsg.Data (Message, MessageId, msgId, prepare, prepareWithId, serializeMsg, setId)
 
 ----------------------------------------------------------------------------------------------------------
 
-type WriterMutex = MVar ()
-
-type MessageID = Int
-
-data ConnectionInfo
-  = ConnectionInfo
-      -- | Any identifier for the client
-      ClientId
+type Mutex = MVar ()
 
 -- | A connection handle which is used by the parent thread to refer to the thread which is handling the connection
-data ConnectionHandle a
-  = ConnectionHandle
-      ConnectionInfo
-      a -- Some protocol-specific data. E.g. client socket address
+newtype ConnectionHandle a
+  = ConnectionHandle a -- Some protocol-specific data. E.g. client socket address
 
 type ConnectionHandleRef a = TVar (ConnectionHandle a)
 
-type ConnectionRead a = Int -> IO BS.StrictByteString
+type ConnectionRead = Int -> IO BS.StrictByteString
 
-type ConnectionWrite a = BS.StrictByteString -> IO ()
+type ConnectionWrite = BS.StrictByteString -> IO ()
 
 -- All necessary operations to handle a connection
 data Connection a
   = Connection
   { chandle :: ConnectionHandleRef a, -- Metadata about the connection
-    cwriterMutex :: WriterMutex, -- So that only one thread can be writing to a connection on a given time
-    readBytes :: ConnectionRead a, -- Interface for receiving bytes
-    cwrite :: ConnectionWrite a -- Interface for sending bytes
+    readBytes :: ConnectionRead, -- Interface for receiving bytes
+    cwrite :: ConnectionWrite, -- Interface for sending bytes
+    cwriterMutex :: Mutex, -- So that only one thread can be writing to a connection on a given time
+    creaderMutex :: Mutex -- So that only one thread can be reading from a connection on a given time
   }
 
 mkConnection ::
-  ConnectionHandleRef a ->
-  ConnectionRead a ->
-  ConnectionWrite a ->
+  a ->
+  ConnectionRead ->
+  ConnectionWrite ->
   IO (Connection a)
-mkConnection handle connread connwrite = do
+mkConnection a connread connwrite = do
   writerLock <- newMVar ()
-  return (Connection handle writerLock connread connwrite)
+  readerLock <- newMVar ()
+  handle <- newTVarIO (ConnectionHandle a)
+  return (Connection handle connread connwrite writerLock readerLock)
 
 writeBytes ::
   Connection c ->
@@ -60,10 +53,22 @@ writeBytes (Connection {cwrite, cwriterMutex}) bytes =
     cwriterMutex
     (const (cwrite bytes))
 
+sendMessageWithId ::
+  (Serialize a) =>
+  Connection c ->
+  Message a ->
+  MessageId ->
+  IO ()
+sendMessageWithId c message mid =
+  let fullMsg = prepareWithId mid message
+   in writeBytes c (serializeMsg fullMsg)
+
 sendMessage ::
   (Serialize a) =>
   Connection c ->
-  UnixMsgTime ->
   Message a ->
-  IO ()
-sendMessage c messageId message = writeBytes c (encodeMsg messageId message)
+  IO MessageId
+sendMessage c message = do
+  fullMsg <- prepare message
+  writeBytes c (serializeMsg fullMsg)
+  return (msgId fullMsg)

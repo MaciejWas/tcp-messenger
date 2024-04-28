@@ -3,7 +3,6 @@
 
 module TcpMsg.Client.Tcp where
 
-import Control.Concurrent.STM (newTVarIO)
 import qualified Network.Socket as Net
   ( AddrInfo (addrAddress),
     HostName,
@@ -13,7 +12,7 @@ import qualified Network.Socket as Net
     openSocket,
   )
 import qualified Network.Socket.ByteString as Net
-import TcpMsg.Connection (Connection, ConnectionHandle (ConnectionHandle), ConnectionInfo (ConnectionInfo), mkConnection)
+import TcpMsg.Connection (Connection, mkConnection)
 import TcpMsg.Network (getAddr)
 
 connectToServer :: ClientOpts -> IO Net.Socket
@@ -34,15 +33,7 @@ createClientConnection ::
 createClientConnection opts =
   do
     socket <- connectToServer opts
-
-    connRef <-
-      newTVarIO
-        ( ConnectionHandle
-            (ConnectionInfo "some conn")
-            socket
-        )
-
     mkConnection
-      connRef
+      socket
       (Net.recv socket)
       (Net.sendAll socket)

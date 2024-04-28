@@ -4,16 +4,16 @@ import qualified Data.ByteString as BS
 import Data.ByteString.Lazy (LazyByteString, toStrict)
 import qualified Data.ByteString.Lazy as LBS
 import Data.Serialize (Serialize, decode)
-import TcpMsg.Data (Header (Header), Message (Message), headersize)
+import TcpMsg.Data (Header (Header), Message (Message), headersize, FullMessage (FullMessage))
 import TcpMsg.Connection (Connection, readBytes)
 
 parseMsg ::
-  (Serialize a) => Connection c -> IO (Header, Message a)
+  (Serialize a) => Connection c -> IO (FullMessage a)
 parseMsg conn = do
   header <- parseHeader conn
   payload <- parsePayload conn header
   trunk <- parseTrunk conn header
-  return (header, Message payload trunk)
+  return (FullMessage header (Message payload trunk) mempty)
 
 parseHeader :: Connection c -> IO Header
 parseHeader conn = parse conn headersize

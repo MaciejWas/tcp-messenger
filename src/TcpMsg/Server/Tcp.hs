@@ -19,7 +19,7 @@ import qualified Network.Socket as Net
     openSocket,
   )
 import qualified Network.Socket.ByteString as Net
-import TcpMsg.Connection (Connection, ConnectionHandle (ConnectionHandle), ConnectionInfo (ConnectionInfo), mkConnection)
+import TcpMsg.Connection (Connection, ConnectionHandle (ConnectionHandle), mkConnection)
 import TcpMsg.Network (getAddr, startListening)
 import TcpMsg.Server.Abstract (ConnectionSupplier (ConnectionSupplier, finalize, nextConnection))
 
@@ -48,14 +48,8 @@ createServerSocket (ServerTcpSettings {port}) = do
 nextTcpConnection :: Net.Socket -> IO (Connection Net.Socket)
 nextTcpConnection sock = do
   (peerSocket, peerAddr) <- Net.accept sock
-  connRef <-
-    newTVarIO
-      ( ConnectionHandle
-          (ConnectionInfo (showt peerAddr))
-          peerSocket
-      )
   mkConnection
-    connRef
+    peerSocket
     (Net.recv peerSocket)
     (Net.sendAll peerSocket)
 
