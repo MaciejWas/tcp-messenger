@@ -21,7 +21,7 @@ tid <-
         )
     )
 
-threadDelay 1000 -- wait for server to start
+threadDelay 1000 -- wait for the server to start
 
 -- Start a client which sends a single request
 let clientOpts = ClientOpts {serverHost = "localhost", serverPort = 44551}
